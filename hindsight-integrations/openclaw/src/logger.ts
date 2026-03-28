@@ -39,8 +39,10 @@ let apiLogger: { info(msg: string): void; warn(msg: string): void; error(msg: st
 
 // Batched summary state
 let retainCount = 0;
+let retainMsgTotal = 0;
 let recallCount = 0;
 let recallMemoriesCount = 0;
+const banksSeen = new Set<string>();
 let lastSummaryTime = Date.now();
 let summaryTimer: ReturnType<typeof setInterval> | null = null;
 
@@ -99,6 +101,8 @@ export function error(msg: string, err?: unknown): void {
 /** Track a retain event for batched summary */
 export function trackRetain(bankId: string, messageCount: number): void {
   retainCount++;
+  retainMsgTotal += messageCount;
+  banksSeen.add(bankId);
   if (currentSummaryIntervalMs === 0 && allowed('normal')) {
     apiLogger.info(`${PREFIX} auto-retained ${messageCount} messages (bank: ${bankId})`);
   }
@@ -108,6 +112,7 @@ export function trackRetain(bankId: string, messageCount: number): void {
 export function trackRecall(bankId: string, memoriesFound: number): void {
   recallCount++;
   recallMemoriesCount += memoriesFound;
+  banksSeen.add(bankId);
   // per-event logging is handled by info() call at the injection site
 }
 
@@ -118,13 +123,18 @@ export function flushSummary(): void {
 
   const elapsed = Math.round((Date.now() - lastSummaryTime) / 1000);
   const parts: string[] = [];
-  if (recallCount > 0) parts.push(`${recallCount} recalls (${recallMemoriesCount} memories)`);
-  if (retainCount > 0) parts.push(`${retainCount} retains`);
-  apiLogger.info(`${PREFIX} ${parts.join(', ')} in ${elapsed}s`);
+  if (recallCount > 0) parts.push(`${recallCount} recalls (${recallMemoriesCount} memories injected)`);
+  if (retainCount > 0) parts.push(`${retainCount} retains (${retainMsgTotal} messages captured)`);
+  const bankList = [...banksSeen];
+  const bankLabel = bankList.length === 1 ? 'bank' : 'banks';
+  const banks = bankList.length > 0 ? ` (${bankLabel}: ${bankList.join(', ')})` : '';
+  apiLogger.info(`${PREFIX} ${parts.join(', ')} in ${elapsed}s${banks}`);
 
   retainCount = 0;
+  retainMsgTotal = 0;
   recallCount = 0;
   recallMemoriesCount = 0;
+  banksSeen.clear();
   lastSummaryTime = Date.now();
 }
 

@@ -830,7 +830,7 @@ export default function (api: MoltbotPluginAPI) {
             const mode = 'external API';
             const autoRecall = pluginConfig.autoRecall !== false;
             const autoRetain = pluginConfig.autoRetain !== false;
-            log.info(`initialized (mode: ${mode}, autoRecall: ${autoRecall}, autoRetain: ${autoRetain})`);
+            log.info(`initialized (mode: ${mode}, bank: ${defaultBankId}, autoRecall: ${autoRecall}, autoRetain: ${autoRetain})`);
           }
           isInitialized = true;
           debug('[Hindsight] ✓ Ready (external API mode)');
@@ -875,7 +875,7 @@ export default function (api: MoltbotPluginAPI) {
             const mode = 'local daemon';
             const autoRecall = pluginConfig.autoRecall !== false;
             const autoRetain = pluginConfig.autoRetain !== false;
-            log.info(`initialized (mode: ${mode}, autoRecall: ${autoRecall}, autoRetain: ${autoRetain})`);
+            log.info(`initialized (mode: ${mode}, bank: ${defaultBankId}, autoRecall: ${autoRecall}, autoRetain: ${autoRetain})`);
           }
           isInitialized = true;
           debug('[Hindsight] ✓ Ready');
