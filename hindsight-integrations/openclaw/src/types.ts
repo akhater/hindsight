@@ -11,6 +11,12 @@ export interface MoltbotPluginAPI {
   registerService(config: ServiceConfig): void;
   // OpenClaw hook handler signature: (event, ctx?) where ctx contains channel/sender info
   on(event: string, handler: (event: any, ctx?: any) => void | Promise<void | PluginPromptHookResult>): void;
+  // OpenClaw framework logger — handles coloring/formatting consistently across plugins
+  logger: {
+    info(msg: string): void;
+    warn(msg: string): void;
+    error(msg: string): void;
+  };
   // Add more as needed
 }
 
@@ -76,7 +82,6 @@ export interface PluginConfig {
   debug?: boolean; // Enable debug logging (default: false)
   logLevel?: 'silent' | 'errors' | 'normal' | 'verbose'; // Console log verbosity (default: 'normal'). 'verbose' implies debug.
   logSummaryIntervalMs?: number; // Batch retain/recall log summaries over this interval in ms. 0 = log every event. Default: 300000 (5 min).
-  logCompact?: boolean; // Single-line log format with timestamp + colored tag. Default: true.
 }
 
 export interface ServiceConfig {

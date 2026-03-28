@@ -1,20 +1,13 @@
 /**
  * Hindsight OpenClaw plugin logger.
  *
+ * Routes output through OpenClaw's api.logger for consistent formatting
+ * with other plugins (same colors/timestamps as mem0, etc.).
+ *
  * Features:
  *  - Configurable log level: 'silent' | 'errors' | 'normal' | 'verbose'
- *  - Compact single-line format (configurable)
- *  - ANSI-colored [Hindsight] tag with dim timestamp
  *  - Batched retain/recall summaries instead of per-event spam
  */
-
-// ANSI escape helpers (no dependencies)
-const RESET = '\x1b[0m';
-const DIM = '\x1b[2m';
-const CYAN = '\x1b[36m';
-const YELLOW = '\x1b[33m';
-const RED = '\x1b[31m';
-const GREEN = '\x1b[32m';
 
 export type LogLevel = 'silent' | 'errors' | 'normal' | 'verbose';
 
@@ -27,6 +20,9 @@ export interface LoggerConfig {
   logCompact?: boolean;
 }
 
+// Muted blue (38;5;103 = slate/dusty blue from 256-color palette)
+const PREFIX = '\x1b[38;5;103mhindsight:\x1b[0m';
+
 const LEVEL_RANK: Record<LogLevel, number> = {
   silent: 0,
   errors: 1,
@@ -34,15 +30,12 @@ const LEVEL_RANK: Record<LogLevel, number> = {
   verbose: 3,
 };
 
-function timestamp(): string {
-  const d = new Date();
-  const hh = String(d.getHours()).padStart(2, '0');
-  const mm = String(d.getMinutes()).padStart(2, '0');
-  const ss = String(d.getSeconds()).padStart(2, '0');
-  return `${hh}:${mm}:${ss}`;
-}
-
-const TAG = `${CYAN}[Hindsight]${RESET}`;
+// Output backend — set via setApiLogger, falls back to console
+let apiLogger: { info(msg: string): void; warn(msg: string): void; error(msg: string): void } = {
+  info: (msg) => console.log(msg),
+  warn: (msg) => console.warn(msg),
+  error: (msg) => console.error(msg),
+};
 
 // Batched summary state
 let retainCount = 0;
@@ -52,12 +45,15 @@ let lastSummaryTime = Date.now();
 let summaryTimer: ReturnType<typeof setInterval> | null = null;
 
 let currentLevel: LogLevel = 'normal';
-let currentCompact = true;
 let currentSummaryIntervalMs = 300_000; // 5 min
+
+/** Bind to OpenClaw's api.logger for consistent output formatting */
+export function setApiLogger(logger: { info(msg: string): void; warn(msg: string): void; error(msg: string): void }): void {
+  apiLogger = logger;
+}
 
 export function configureLogger(cfg: LoggerConfig): void {
   currentLevel = cfg.logLevel ?? 'normal';
-  currentCompact = cfg.logCompact ?? true;
   currentSummaryIntervalMs = cfg.logSummaryIntervalMs ?? 300_000;
 
   // Restart summary timer
@@ -75,43 +71,36 @@ function allowed(level: LogLevel): boolean {
   return LEVEL_RANK[currentLevel] >= LEVEL_RANK[level];
 }
 
-function fmt(color: string, msg: string): string {
-  if (currentCompact) {
-    return `${DIM}${timestamp()}${RESET} ${TAG} ${color}${msg}${RESET}`;
-  }
-  return `${DIM}${timestamp()}${RESET} ${TAG} ${color}${msg}${RESET}`;
-}
-
 /** Info-level log (requires 'normal' or higher) */
 export function info(msg: string): void {
   if (!allowed('normal')) return;
-  console.log(fmt('', msg));
+  apiLogger.info(`${PREFIX} ${msg}`);
 }
 
 /** Verbose/debug log (requires 'verbose') */
 export function verbose(msg: string): void {
   if (!allowed('verbose')) return;
-  console.log(fmt(DIM, msg));
+  apiLogger.info(`${PREFIX} ${msg}`);
 }
 
 /** Warning (requires 'errors' or higher) */
 export function warn(msg: string): void {
   if (!allowed('errors')) return;
-  console.warn(fmt(YELLOW, msg));
+  apiLogger.warn(`${PREFIX} ${msg}`);
 }
 
 /** Error (requires 'errors' or higher) */
 export function error(msg: string, err?: unknown): void {
   if (!allowed('errors')) return;
   const detail = err instanceof Error ? err.message : (err ? String(err) : '');
-  console.error(fmt(RED, detail ? `${msg}: ${detail}` : msg));
+  apiLogger.error(`${PREFIX} ${detail ? `${msg}: ${detail}` : msg}`);
 }
 
 /** Track a retain event for batched summary */
 export function trackRetain(bankId: string, messageCount: number): void {
   retainCount++;
   if (currentSummaryIntervalMs === 0 && allowed('normal')) {
-    console.log(fmt(GREEN, `retained ${messageCount} msgs → ${bankId}`));
+    apiLogger.info(`${PREFIX} auto-retained ${messageCount} messages (bank: ${bankId})`);
   }
 }
 
@@ -119,9 +108,7 @@ export function trackRetain(bankId: string, messageCount: number): void {
 export function trackRecall(bankId: string, memoriesFound: number): void {
   recallCount++;
   recallMemoriesCount += memoriesFound;
-  if (currentSummaryIntervalMs === 0 && allowed('normal')) {
-    console.log(fmt('', `recalled ${memoriesFound} memories ← ${bankId}`));
-  }
+  // per-event logging is handled by info() call at the injection site
 }
 
 /** Flush the batched summary to console */
@@ -133,7 +120,7 @@ export function flushSummary(): void {
   const parts: string[] = [];
   if (recallCount > 0) parts.push(`${recallCount} recalls (${recallMemoriesCount} memories)`);
   if (retainCount > 0) parts.push(`${retainCount} retains`);
-  console.log(fmt(GREEN, `${parts.join(', ')} in ${elapsed}s`));
+  apiLogger.info(`${PREFIX} ${parts.join(', ')} in ${elapsed}s`);
 
   retainCount = 0;
   recallCount = 0;

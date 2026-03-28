@@ -5,7 +5,7 @@ import { createHash } from 'crypto';
 import { dirname } from 'path';
 import { fileURLToPath } from 'url';
 import * as log from './logger.js';
-import { configureLogger, stopLogger } from './logger.js';
+import { configureLogger, setApiLogger, stopLogger } from './logger.js';
 
 // Debug logging: silent by default, enable with debug: true or logLevel: 'verbose'
 let debugEnabled = false;
@@ -742,11 +742,11 @@ export default function (api: MoltbotPluginAPI) {
     // If logLevel is 'verbose', also enable legacy debug flag
     debugEnabled = pluginConfig.debug ?? (pluginConfig.logLevel === 'verbose');
 
-    // Configure structured logger
+    // Configure structured logger — route through OpenClaw's api.logger for consistent formatting
+    if (api.logger) setApiLogger(api.logger);
     configureLogger({
       logLevel: pluginConfig.logLevel ?? (pluginConfig.debug ? 'verbose' : 'normal'),
       logSummaryIntervalMs: pluginConfig.logSummaryIntervalMs,
-      logCompact: pluginConfig.logCompact,
     });
 
     // Store config globally for bank ID derivation in hooks
@@ -826,8 +826,13 @@ export default function (api: MoltbotPluginAPI) {
             await client.setBankMission(pluginConfig.bankMission);
           }
 
+          if (!isInitialized) {
+            const mode = 'external API';
+            const autoRecall = pluginConfig.autoRecall !== false;
+            const autoRetain = pluginConfig.autoRetain !== false;
+            log.info(`initialized (mode: ${mode}, autoRecall: ${autoRecall}, autoRetain: ${autoRetain})`);
+          }
           isInitialized = true;
-          log.info('ready (external API)');
           debug('[Hindsight] ✓ Ready (external API mode)');
         } else {
           // Local daemon mode - start hindsight-embed daemon
@@ -866,8 +871,13 @@ export default function (api: MoltbotPluginAPI) {
             await client.setBankMission(pluginConfig.bankMission);
           }
 
+          if (!isInitialized) {
+            const mode = 'local daemon';
+            const autoRecall = pluginConfig.autoRecall !== false;
+            const autoRetain = pluginConfig.autoRetain !== false;
+            log.info(`initialized (mode: ${mode}, autoRecall: ${autoRecall}, autoRetain: ${autoRetain})`);
+          }
           isInitialized = true;
-          log.info('ready (local daemon)');
           debug('[Hindsight] ✓ Ready');
         }
       } catch (error) {
@@ -1154,7 +1164,7 @@ ${memoriesFormatted}
 </hindsight_memories>`;
 
         debug(`[Hindsight] Auto-recall: Injecting ${results.length} memories from bank ${bankId}`);
-        log.info(`↻ ${results.length} memories → context (bank: ${bankId})`);
+        log.info(`injecting ${results.length} memories into context (bank: ${bankId})`);
         log.trackRecall(bankId, results.length);
 
         // Inject recalled memories. Position is configurable to preserve prompt caching
