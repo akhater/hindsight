@@ -190,14 +190,14 @@
       },
       "debug": {
         "type": "boolean",
-        "description": "Enable debug logging for Hindsight plugin operations. Equivalent to logLevel: 'verbose'.",
+        "description": "Enable debug logging for Hindsight plugin operations. Equivalent to logLevel: 'debug'.",
         "default": false
       },
       "logLevel": {
         "type": "string",
-        "description": "Console log verbosity. 'silent' = no output, 'errors' = errors/warnings only, 'normal' = key events + periodic summaries, 'verbose' = all details (implies debug: true).",
-        "enum": ["silent", "errors", "normal", "verbose"],
-        "default": "normal"
+        "description": "Console log verbosity. 'off' = no output, 'error' = errors only, 'warning' = errors + warnings, 'info' = key events + periodic summaries, 'debug' = all details.",
+        "enum": ["off", "error", "warning", "info", "debug"],
+        "default": "info"
       },
       "logSummaryIntervalMs": {
         "type": "number",

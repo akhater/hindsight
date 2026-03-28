@@ -7,7 +7,7 @@ import { fileURLToPath } from 'url';
 import * as log from './logger.js';
 import { configureLogger, setApiLogger, stopLogger } from './logger.js';
 
-// Debug logging: silent by default, enable with debug: true or logLevel: 'verbose'
+// Debug logging: silent by default, enable with debug: true or logLevel: 'debug'
 let debugEnabled = false;
 const debug = (...args: unknown[]) => {
   if (debugEnabled) log.verbose(args.map(a => typeof a === 'string' ? a.replace(/^\[Hindsight\]\s*/, '') : String(a)).join(' '));
@@ -739,13 +739,13 @@ export default function (api: MoltbotPluginAPI) {
 
     // Get plugin config first (needed for LLM detection and debug flag)
     const pluginConfig = getPluginConfig(api);
-    // If logLevel is 'verbose', also enable legacy debug flag
-    debugEnabled = pluginConfig.debug ?? (pluginConfig.logLevel === 'verbose');
+    // If logLevel is 'debug', also enable legacy debug flag
+    debugEnabled = pluginConfig.debug ?? (pluginConfig.logLevel === 'debug');
 
     // Configure structured logger — route through OpenClaw's api.logger for consistent formatting
     if (api.logger) setApiLogger(api.logger);
     configureLogger({
-      logLevel: pluginConfig.logLevel ?? (pluginConfig.debug ? 'verbose' : 'normal'),
+      logLevel: pluginConfig.logLevel ?? (pluginConfig.debug ? 'debug' : 'info'),
       logSummaryIntervalMs: pluginConfig.logSummaryIntervalMs,
     });
 

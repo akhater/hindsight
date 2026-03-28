@@ -5,29 +5,28 @@
  * with other plugins (same colors/timestamps as mem0, etc.).
  *
  * Features:
- *  - Configurable log level: 'silent' | 'errors' | 'normal' | 'verbose'
+ *  - Configurable log level: 'off' | 'error' | 'warning' | 'info' | 'debug'
  *  - Batched retain/recall summaries instead of per-event spam
  */
 
-export type LogLevel = 'silent' | 'errors' | 'normal' | 'verbose';
+export type LogLevel = 'off' | 'error' | 'warning' | 'info' | 'debug';
 
 export interface LoggerConfig {
-  /** Minimum severity to print. Default: 'normal' */
+  /** Minimum severity to print. Default: 'info' */
   logLevel?: LogLevel;
   /** Interval in ms to print batched retain/recall summaries. 0 = print every event. Default: 300000 (5 min) */
   logSummaryIntervalMs?: number;
-  /** Use short single-line format. Default: true */
-  logCompact?: boolean;
 }
 
 // Muted blue (38;5;103 = slate/dusty blue from 256-color palette)
 const PREFIX = '\x1b[38;5;103mhindsight:\x1b[0m';
 
 const LEVEL_RANK: Record<LogLevel, number> = {
-  silent: 0,
-  errors: 1,
-  normal: 2,
-  verbose: 3,
+  off: 0,
+  error: 1,
+  warning: 2,
+  info: 3,
+  debug: 4,
 };
 
 // Output backend — set via setApiLogger, falls back to console
@@ -46,7 +45,7 @@ const banksSeen = new Set<string>();
 let lastSummaryTime = Date.now();
 let summaryTimer: ReturnType<typeof setInterval> | null = null;
 
-let currentLevel: LogLevel = 'normal';
+let currentLevel: LogLevel = 'info';
 let currentSummaryIntervalMs = 300_000; // 5 min
 
 /** Bind to OpenClaw's api.logger for consistent output formatting */
@@ -55,7 +54,7 @@ export function setApiLogger(logger: { info(msg: string): void; warn(msg: string
 }
 
 export function configureLogger(cfg: LoggerConfig): void {
-  currentLevel = cfg.logLevel ?? 'normal';
+  currentLevel = cfg.logLevel ?? 'info';
   currentSummaryIntervalMs = cfg.logSummaryIntervalMs ?? 300_000;
 
   // Restart summary timer
@@ -63,7 +62,7 @@ export function configureLogger(cfg: LoggerConfig): void {
     clearInterval(summaryTimer);
     summaryTimer = null;
   }
-  if (currentSummaryIntervalMs > 0 && LEVEL_RANK[currentLevel] >= LEVEL_RANK['normal']) {
+  if (currentSummaryIntervalMs > 0 && LEVEL_RANK[currentLevel] >= LEVEL_RANK['info']) {
     summaryTimer = setInterval(flushSummary, currentSummaryIntervalMs);
     summaryTimer.unref?.(); // don't keep process alive
   }
@@ -73,27 +72,27 @@ function allowed(level: LogLevel): boolean {
   return LEVEL_RANK[currentLevel] >= LEVEL_RANK[level];
 }
 
-/** Info-level log (requires 'normal' or higher) */
+/** Info-level log (requires 'info' or higher) */
 export function info(msg: string): void {
-  if (!allowed('normal')) return;
+  if (!allowed('info')) return;
   apiLogger.info(`${PREFIX} ${msg}`);
 }
 
-/** Verbose/debug log (requires 'verbose') */
+/** Debug log (requires 'debug') */
 export function verbose(msg: string): void {
-  if (!allowed('verbose')) return;
+  if (!allowed('debug')) return;
   apiLogger.info(`${PREFIX} ${msg}`);
 }
 
-/** Warning (requires 'errors' or higher) */
+/** Warning (requires 'warning' or higher) */
 export function warn(msg: string): void {
-  if (!allowed('errors')) return;
+  if (!allowed('warning')) return;
   apiLogger.warn(`${PREFIX} ${msg}`);
 }
 
-/** Error (requires 'errors' or higher) */
+/** Error (requires 'error' or higher) */
 export function error(msg: string, err?: unknown): void {
-  if (!allowed('errors')) return;
+  if (!allowed('error')) return;
   const detail = err instanceof Error ? err.message : (err ? String(err) : '');
   apiLogger.error(`${PREFIX} ${detail ? `${msg}: ${detail}` : msg}`);
 }
@@ -103,7 +102,7 @@ export function trackRetain(bankId: string, messageCount: number): void {
   retainCount++;
   retainMsgTotal += messageCount;
   banksSeen.add(bankId);
-  if (currentSummaryIntervalMs === 0 && allowed('normal')) {
+  if (currentSummaryIntervalMs === 0 && allowed('info')) {
     apiLogger.info(`${PREFIX} auto-retained ${messageCount} messages (bank: ${bankId})`);
   }
 }
@@ -118,7 +117,7 @@ export function trackRecall(bankId: string, memoriesFound: number): void {
 
 /** Flush the batched summary to console */
 export function flushSummary(): void {
-  if (!allowed('normal')) return;
+  if (!allowed('info')) return;
   if (retainCount === 0 && recallCount === 0) return;
 
   const elapsed = Math.round((Date.now() - lastSummaryTime) / 1000);
