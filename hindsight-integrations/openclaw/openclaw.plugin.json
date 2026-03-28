@@ -190,8 +190,24 @@
       },
       "debug": {
         "type": "boolean",
-        "description": "Enable debug logging for Hindsight plugin operations.",
+        "description": "Enable debug logging for Hindsight plugin operations. Equivalent to logLevel: 'verbose'.",
         "default": false
+      },
+      "logLevel": {
+        "type": "string",
+        "description": "Console log verbosity. 'silent' = no output, 'errors' = errors/warnings only, 'normal' = key events + periodic summaries, 'verbose' = all details (implies debug: true).",
+        "enum": ["silent", "errors", "normal", "verbose"],
+        "default": "normal"
+      },
+      "logSummaryIntervalMs": {
+        "type": "number",
+        "description": "Interval in ms to batch retain/recall log summaries. 0 = log every event individually. Default: 300000 (5 min).",
+        "default": 300000
+      },
+      "logCompact": {
+        "type": "boolean",
+        "description": "Use compact single-line log format with dim timestamp and colored [Hindsight] tag.",
+        "default": true
       }
     },
     "additionalProperties": false
@@ -311,6 +327,16 @@
     },
     "debug": {
       "label": "Debug"
+    },
+    "logLevel": {
+      "label": "Log Level"
+    },
+    "logSummaryIntervalMs": {
+      "label": "Log Summary Interval (ms)",
+      "placeholder": "300000"
+    },
+    "logCompact": {
+      "label": "Compact Logs"
     }
   }
 }
