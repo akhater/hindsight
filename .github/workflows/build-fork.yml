@@ -36,7 +36,7 @@ jobs:
         username: ${{ github.actor }}
         password: ${{ secrets.GITHUB_TOKEN }}
 
-    - name: Build and push
+    - name: Build and push full
       uses: docker/build-push-action@v7
       with:
         context: .
@@ -45,3 +45,16 @@ jobs:
         push: true
         platforms: linux/amd64
         tags: ghcr.io/akhater/hindsight:latest
+
+    - name: Build and push slim
+      uses: docker/build-push-action@v7
+      with:
+        context: .
+        file: docker/standalone/Dockerfile
+        target: standalone
+        build-args: |
+          INCLUDE_LOCAL_MODELS=false
+          PRELOAD_ML_MODELS=false
+        push: true
+        platforms: linux/amd64
+        tags: ghcr.io/akhater/hindsight:slim
