@@ -6,6 +6,75 @@ import PageHero from '@site/src/components/PageHero';
 
 <PageHero title="Changelog" subtitle="User-facing changes only. Internal maintenance and infrastructure updates are omitted." />
 
+## [0.4.22](https://github.com/vectorize-io/hindsight/releases/tag/v0.4.22)
+
+**Features**
+
+- API now supports passing custom LLM request parameters via the HINDSIGHT_API_LLM_EXTRA_BODY configuration. ([`ecaa1ad1`](https://github.com/vectorize-io/hindsight/commit/ecaa1ad1))
+- Document metadata is now exposed through the API and control plane. ([`627ec5d5`](https://github.com/vectorize-io/hindsight/commit/627ec5d5))
+- Added a /code-review skill for automated code quality checks against project standards. ([`bdb33c58`](https://github.com/vectorize-io/hindsight/commit/bdb33c58))
+- ZeroEntropy reranker now supports a configurable base URL. ([`a915584e`](https://github.com/vectorize-io/hindsight/commit/a915584e))
+- Codex can now retain structured tool calls from rollout files. ([`3461398b`](https://github.com/vectorize-io/hindsight/commit/3461398b))
+
+**Improvements**
+
+- Embeddings via the LiteLLM SDK can now optionally specify output dimensions. ([`f841bcb9`](https://github.com/vectorize-io/hindsight/commit/f841bcb9))
+- API responses now include an X-Ignored-Params header to warn when unknown request parameters were ignored. ([`cef42d81`](https://github.com/vectorize-io/hindsight/commit/cef42d81))
+- OpenClaw CLI startup is faster by deferring heavy initialization until the service starts. ([`41025c3b`](https://github.com/vectorize-io/hindsight/commit/41025c3b))
+
+**Bug Fixes**
+
+- Mental model triggers now support the full config schema, including tag matching and tag group filters. ([`2c32ffad`](https://github.com/vectorize-io/hindsight/commit/2c32ffad))
+- Cohere reranking via Azure endpoints now works reliably (avoids 404 errors). ([`84985ee9`](https://github.com/vectorize-io/hindsight/commit/84985ee9))
+- Claude Code provider no longer defers to built-in tools, preventing MCP tool handling issues. ([`fa82efc8`](https://github.com/vectorize-io/hindsight/commit/fa82efc8))
+- Recall endpoint now returns metadata correctly instead of dropping it from the response. ([`4768bf39`](https://github.com/vectorize-io/hindsight/commit/4768bf39))
+- Gemini 3.1+ tool calls now read thought signatures correctly. ([`1b5c262a`](https://github.com/vectorize-io/hindsight/commit/1b5c262a))
+- First-person agent memories are now correctly classified as "experience" facts. ([`00961156`](https://github.com/vectorize-io/hindsight/commit/00961156))
+- Codex upgrades now preserve and merge new settings instead of skipping them. ([`b104bad0`](https://github.com/vectorize-io/hindsight/commit/b104bad0))
+- LlamaIndex integration fixes improve document ID handling, memory API behavior, and ReAct tracing. ([`d93dfea8`](https://github.com/vectorize-io/hindsight/commit/d93dfea8))
+
+## [0.4.21](https://github.com/vectorize-io/hindsight/releases/tag/v0.4.21)
+
+**Features**
+
+- Added audit logging for feature usage tracking, including request duration in audit entries. ([`083295dc`](https://github.com/vectorize-io/hindsight/commit/083295dc))
+- Added Hindsight memory integration for the OpenAI Codex CLI. ([`0b17a67c`](https://github.com/vectorize-io/hindsight/commit/0b17a67c))
+- Added an MCP hook to filter tool visibility per user. ([`f8285b7b`](https://github.com/vectorize-io/hindsight/commit/f8285b7b))
+- Added a per-bank limit setting to cap the number of observations stored per scope. ([`b32767ca`](https://github.com/vectorize-io/hindsight/commit/b32767ca))
+- Added native Windows support so Hindsight can run without Docker. ([`c5700ff5`](https://github.com/vectorize-io/hindsight/commit/c5700ff5))
+- Added a 'none' LLM provider to support chunk-only storage without LLM calls. ([`9e5a066d`](https://github.com/vectorize-io/hindsight/commit/9e5a066d))
+- Added a setup command/skill to register hooks more reliably. ([`22ca6a8d`](https://github.com/vectorize-io/hindsight/commit/22ca6a8d))
+- Hermes now supports file-based configuration. ([`0ff36548`](https://github.com/vectorize-io/hindsight/commit/0ff36548))
+- Added a LiteLLM-based provider to support Bedrock and many additional LLM providers. ([`db70fdbe`](https://github.com/vectorize-io/hindsight/commit/db70fdbe))
+- Added support for Strands Agents SDK integration with Hindsight memory tools. ([`7fe773c0`](https://github.com/vectorize-io/hindsight/commit/7fe773c0))
+- Added LlamaIndex integration. ([`2d787c4f`](https://github.com/vectorize-io/hindsight/commit/2d787c4f))
+- Added AG2 framework integration. ([`73123870`](https://github.com/vectorize-io/hindsight/commit/73123870))
+- Added support for Ark and Volcano LLM providers. ([`417fac61`](https://github.com/vectorize-io/hindsight/commit/417fac61))
+- Retain now supports delta mode to skip LLM processing for unchanged chunks on upsert. ([`fd88c0ef`](https://github.com/vectorize-io/hindsight/commit/fd88c0ef))
+- Claude Code integration can now retain full sessions with document upsert and configurable tags, and records tool calls as structured JSON. ([`2d31b67d`](https://github.com/vectorize-io/hindsight/commit/2d31b67d))
+- MCP retain tool now supports selecting a retain strategy via a parameter. ([`4285e944`](https://github.com/vectorize-io/hindsight/commit/4285e944))
+
+**Improvements**
+
+- OpenClaw logging is now configurable and can emit structured output. ([`d441ab81`](https://github.com/vectorize-io/hindsight/commit/d441ab81))
+- Made inclusion of source facts in search observations configurable. ([`5095d5e3`](https://github.com/vectorize-io/hindsight/commit/5095d5e3))
+- Integrations no longer use hardcoded default models, relying on configured defaults instead. ([`58e68f3e`](https://github.com/vectorize-io/hindsight/commit/58e68f3e))
+
+**Bug Fixes**
+
+- Improved MCP server compatibility by handling Claude Code GET probes and allowing stateless HTTP mode to be configured. ([`d8050387`](https://github.com/vectorize-io/hindsight/commit/d8050387))
+- Per-bank vector index creation now respects the configured vector extension setting. ([`6488c9bc`](https://github.com/vectorize-io/hindsight/commit/6488c9bc))
+- Verbose retain extraction now correctly includes the retain mission context. ([`d2965e64`](https://github.com/vectorize-io/hindsight/commit/d2965e64))
+- Codex integration no longer crashes on startup when the API quota is exhausted (HTTP 429). ([`111e8c70`](https://github.com/vectorize-io/hindsight/commit/111e8c70))
+- OpenAI embeddings client now correctly parses query parameters included in base_url. ([`a209ef1a`](https://github.com/vectorize-io/hindsight/commit/a209ef1a))
+- Fixed tool_choice handling for Codex/Claude Code when forcing specific tool calls. ([`585ac76f`](https://github.com/vectorize-io/hindsight/commit/585ac76f))
+- OpenClaw auto-recall now supports a configurable timeout to prevent hangs. ([`cd4d449f`](https://github.com/vectorize-io/hindsight/commit/cd4d449f))
+- Fixed control plane UI issues affecting recall and data viewing. ([`6bb83f46`](https://github.com/vectorize-io/hindsight/commit/6bb83f46))
+- Recall responses now include associated metadata. ([`0bcbf849`](https://github.com/vectorize-io/hindsight/commit/0bcbf849))
+- Python client update_bank_config() now exposes all configurable fields. ([`7c18723f`](https://github.com/vectorize-io/hindsight/commit/7c18723f))
+- API OpenAPI schema now correctly includes Pydantic v2 ValidationError fields. ([`939cb40a`](https://github.com/vectorize-io/hindsight/commit/939cb40a))
+- JSON-string tags are now coerced to lists for MemoryItem and MCP tools to prevent tagging errors. ([`c5273f5f`](https://github.com/vectorize-io/hindsight/commit/c5273f5f))
+
 ## [0.4.20](https://github.com/vectorize-io/hindsight/releases/tag/v0.4.20)
 
 **Features**

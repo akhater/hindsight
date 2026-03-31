@@ -159,7 +159,9 @@ class ExtractedFact(BaseModel):
     fact_kind: str = Field(default="conversation", description="'event' or 'conversation'")
     occurred_start: str | None = Field(default=None, description="ISO timestamp for events")
     occurred_end: str | None = Field(default=None, description="ISO timestamp for event end")
-    fact_type: Literal["world", "assistant"] = Field(description="'world' or 'assistant'")
+    fact_type: Literal["world", "assistant"] = Field(
+        description="'world' = objective/external facts. 'assistant' = first-person actions, experiences, or observations by the speaker."
+    )
     entities: list[Entity] | None = Field(default=None, description="People, places, concepts")
     causal_relations: list[FactCausalRelation] | None = Field(
         default=None, description="Links to previous facts (target_index < this fact's index)"
@@ -261,7 +263,7 @@ class ExtractedFactVerbose(BaseModel):
     )
 
     fact_type: Literal["world", "assistant"] = Field(
-        description="'world' = about the user/others (background, experiences). 'assistant' = experience with the assistant."
+        description="'world' = objective/external facts about other people, events, general knowledge. 'assistant' = first-person actions, experiences, or observations by the speaker (e.g., 'I changed X', 'I discovered Y')."
     )
 
     entities: list[Entity] | None = Field(
@@ -352,7 +354,9 @@ class VerbatimExtractedFact(BaseModel):
     fact_kind: str = Field(default="conversation", description="'event' or 'conversation'")
     occurred_start: str | None = Field(default=None, description="ISO timestamp for events")
     occurred_end: str | None = Field(default=None, description="ISO timestamp for event end")
-    fact_type: Literal["world", "assistant"] = Field(description="'world' or 'assistant'")
+    fact_type: Literal["world", "assistant"] = Field(
+        description="'world' = objective/external facts. 'assistant' = first-person actions, experiences, or observations by the speaker."
+    )
     entities: list[Entity] | None = Field(default=None, description="People, places, concepts")
 
     @field_validator("entities", mode="before")
@@ -499,8 +503,8 @@ fact_kind:
 - "conversation": Ongoing state, preference, trait (no dates)
 
 fact_type:
-- "world": About user's life, other people, external events
-- "assistant": Interactions with assistant (requests, recommendations)
+- "world": About other people, external events, general knowledge, objective facts
+- "assistant": First-person actions, experiences, or observations by the speaker/author (e.g., "I changed X", "I discovered Y", "I debugged Z"). Also includes interactions with the user (requests, recommendations). If the narrator describes something they did, tried, learned, or decided — use "assistant".
 
 ══════════════════════════════════════════════════════════════════════════
 TEMPORAL HANDLING
@@ -616,7 +620,7 @@ VERBOSE_FACT_EXTRACTION_PROMPT = """Extract facts from text into structured form
 
 LANGUAGE: MANDATORY — Detect the language of the input text and produce ALL output in that EXACT same language. You are STRICTLY FORBIDDEN from translating or switching to any other language. Every single word of your output must be in the same language as the input. Do NOT output in a different language under any circumstance.
 
-══════════════════════════════════════════════════════════════════════════
+{retain_mission_section}══════════════════════════════════════════════════════════════════════════
 FACT FORMAT - ALL FIVE DIMENSIONS REQUIRED - MAXIMUM VERBOSITY
 ══════════════════════════════════════════════════════════════════════════
 
@@ -827,7 +831,9 @@ def _build_extraction_prompt_and_schema(config) -> tuple[str, type]:
                 custom_instructions=config.retain_custom_instructions,
             )
     elif extraction_mode == "verbose":
-        prompt = VERBOSE_FACT_EXTRACTION_PROMPT
+        prompt = VERBOSE_FACT_EXTRACTION_PROMPT.format(
+            retain_mission_section=retain_mission_section,
+        )
     elif extraction_mode == "verbatim":
         prompt = VERBATIM_FACT_EXTRACTION_PROMPT.format(
             retain_mission_section=retain_mission_section,

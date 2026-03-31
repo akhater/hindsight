@@ -17,7 +17,7 @@ from hindsight_api.pg0 import EmbeddedPostgres
 
 # Default pg0 instance configuration for tests
 DEFAULT_PG0_INSTANCE_NAME = "hindsight-test"
-DEFAULT_PG0_PORT = 5556
+DEFAULT_PG0_PORT = None
 
 
 # Load environment variables from .env at the start of test session
@@ -126,7 +126,7 @@ def llm_config():
     Provide LLM configuration for tests.
     This can be used by tests that need to call LLM directly without memory system.
     """
-    return LLMConfig.for_memory()
+    return LLMConfig.from_env()
 
 
 @pytest.fixture(scope="session")

@@ -16,6 +16,7 @@ import logging
 import time
 import uuid
 from collections.abc import Awaitable, Callable
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta, timezone
 from typing import TYPE_CHECKING, Any
 
@@ -226,6 +227,42 @@ def _get_tiktoken_encoding():
     return _TIKTOKEN_ENCODING
 
 
+@dataclass(frozen=True)
+class RefreshTagFiltering:
+    """Resolved tag filtering parameters for mental model refresh."""
+
+    tags: list[str] | None
+    tags_match: TagsMatch
+    tag_groups: list[TagGroup] | None
+
+
+def _resolve_refresh_tag_filtering(
+    model_tags: list[str] | None,
+    trigger_data: dict[str, Any],
+) -> RefreshTagFiltering:
+    """Resolve tag filtering parameters for mental model refresh.
+
+    Takes raw trigger dict from DB (JSONB with no fixed schema guarantee)
+    and resolves the tag filtering to use during reflect.
+
+    Priority:
+    - If trigger has tag_groups, use those (overrides flat tags entirely)
+    - If trigger has tags_match, use model's tags with that match mode
+    - Otherwise default to all_strict when tags present (security isolation)
+    """
+    trigger_tag_groups = trigger_data.get("tag_groups")
+    if trigger_tag_groups is not None:
+        from pydantic import TypeAdapter
+
+        adapter = TypeAdapter(TagGroup)
+        parsed = [adapter.validate_python(tg) for tg in trigger_tag_groups]
+        return RefreshTagFiltering(tags=None, tags_match="any", tag_groups=parsed)
+
+    trigger_tags_match = trigger_data.get("tags_match")
+    tags_match: TagsMatch = trigger_tags_match if trigger_tags_match else ("all_strict" if model_tags else "any")
+    return RefreshTagFiltering(tags=model_tags, tags_match=tags_match, tag_groups=None)
+
+
 class MemoryEngine(MemoryEngineInterface):
     """
     Advanced memory system using temporal and semantic linking with PostgreSQL.
@@ -396,6 +433,7 @@ class MemoryEngine(MemoryEngineInterface):
             api_key=memory_llm_api_key,
             base_url=memory_llm_base_url,
             model=memory_llm_model,
+            extra_body=config.llm_extra_body,
         )
 
         # Store client and model for convenience (deprecated: use _llm_config.call() instead)
@@ -422,6 +460,7 @@ class MemoryEngine(MemoryEngineInterface):
             api_key=retain_api_key,
             base_url=retain_base_url,
             model=retain_model,
+            extra_body=config.llm_extra_body,
         )
 
         # Reflect LLM config - for think/observe operations (can use lighter models)
@@ -443,6 +482,7 @@ class MemoryEngine(MemoryEngineInterface):
             api_key=reflect_api_key,
             base_url=reflect_base_url,
             model=reflect_model,
+            extra_body=config.llm_extra_body,
         )
 
         # Consolidation LLM config - for mental model consolidation (can use efficient models)
@@ -464,6 +504,7 @@ class MemoryEngine(MemoryEngineInterface):
             api_key=consolidation_api_key,
             base_url=consolidation_base_url,
             model=consolidation_model,
+            extra_body=config.llm_extra_body,
         )
 
         # Initialize cross-encoder reranker (cached for performance)
@@ -904,17 +945,13 @@ class MemoryEngine(MemoryEngineInterface):
 
         source_query = mental_model["source_query"]
 
-        # SECURITY: If the mental model has tags, pass them to reflect with "all_strict" matching
-        # to ensure it can only access other mental models/memories with the SAME tags.
-        # This prevents cross-tenant/cross-user information leakage by excluding untagged content.
-        tags = mental_model.get("tags")
-        tags_match = "all_strict" if tags else "any"
-
         # Read reflect options from trigger (if stored)
         trigger_data = mental_model.get("trigger") or {}
         fact_types = trigger_data.get("fact_types")
         exclude_mental_models = trigger_data.get("exclude_mental_models", False)
         stored_exclude_ids: list[str] = trigger_data.get("exclude_mental_model_ids") or []
+
+        tag_filtering = _resolve_refresh_tag_filtering(mental_model.get("tags"), trigger_data)
 
         # Run reflect to generate new content, excluding the mental model being refreshed
         # Always add self to excluded IDs to prevent circular reference
@@ -922,8 +959,9 @@ class MemoryEngine(MemoryEngineInterface):
             bank_id=bank_id,
             query=source_query,
             request_context=internal_context,
-            tags=tags,
-            tags_match=tags_match,
+            tags=tag_filtering.tags,
+            tags_match=tag_filtering.tags_match,
+            tag_groups=tag_filtering.tag_groups,
             fact_types=fact_types,
             exclude_mental_models=exclude_mental_models,
             exclude_mental_model_ids=list({*stored_exclude_ids, mental_model_id}),
@@ -3509,11 +3547,13 @@ class MemoryEngine(MemoryEngineInterface):
             doc = await conn.fetchrow(
                 f"""
                 SELECT d.id, d.bank_id, d.original_text, d.content_hash,
-                       d.created_at, d.updated_at, d.tags, COUNT(mu.id) as unit_count
+                       d.created_at, d.updated_at, d.tags, d.retain_params,
+                       COUNT(mu.id) as unit_count
                 FROM {fq_table("documents")} d
                 LEFT JOIN {fq_table("memory_units")} mu ON mu.document_id = d.id
                 WHERE d.id = $1 AND d.bank_id = $2
-                GROUP BY d.id, d.bank_id, d.original_text, d.content_hash, d.created_at, d.updated_at, d.tags
+                GROUP BY d.id, d.bank_id, d.original_text, d.content_hash,
+                         d.created_at, d.updated_at, d.tags, d.retain_params
                 """,
                 document_id,
                 bank_id,
@@ -3521,6 +3561,14 @@ class MemoryEngine(MemoryEngineInterface):
 
             if not doc:
                 return None
+
+            retain_params_raw = doc["retain_params"]
+            retain_params_parsed = (
+                json.loads(retain_params_raw) if isinstance(retain_params_raw, str) else retain_params_raw
+            )
+
+            # document_metadata is sourced from retain_params.metadata
+            document_metadata = retain_params_parsed.get("metadata") if retain_params_parsed else None
 
             return {
                 "id": doc["id"],
@@ -3531,6 +3579,8 @@ class MemoryEngine(MemoryEngineInterface):
                 "created_at": doc["created_at"].isoformat() if doc["created_at"] else None,
                 "updated_at": doc["updated_at"].isoformat() if doc["updated_at"] else None,
                 "tags": list(doc["tags"]) if doc["tags"] else [],
+                "document_metadata": document_metadata or None,
+                "retain_params": retain_params_parsed or None,
             }
 
     async def delete_document(
@@ -3896,11 +3946,11 @@ class MemoryEngine(MemoryEngineInterface):
                 except Exception as e:
                     raise Exception(f"Failed to delete agent data: {str(e)}")
 
-            # Drop per-bank HNSW indexes AFTER the transaction commits to avoid
+            # Drop per-bank vector indexes AFTER the transaction commits to avoid
             # AccessExclusiveLock deadlocks with concurrent bank deletions.
             # (DROP INDEX on memory_units conflicts with RowExclusiveLock from DELETE inside tx)
             if bank_internal_id:
-                await bank_utils.drop_bank_hnsw_indexes(conn, bank_internal_id)
+                await bank_utils.drop_bank_vector_indexes(conn, bank_internal_id)
 
         if invalidated_obs > 0:
             await self.submit_async_consolidation(bank_id=bank_id, request_context=request_context)
@@ -4950,6 +5000,14 @@ class MemoryEngine(MemoryEngineInterface):
                 bank_id_val = row["bank_id"]
                 unit_count = count_map.get((doc_id, bank_id_val), 0)
 
+                retain_params_val = row["retain_params"]
+                retain_params_val = (
+                    json.loads(retain_params_val) if isinstance(retain_params_val, str) else retain_params_val
+                )
+
+                # document_metadata is sourced from retain_params.metadata
+                document_metadata = retain_params_val.get("metadata") if retain_params_val else None
+
                 items.append(
                     {
                         "id": doc_id,
@@ -4959,7 +5017,8 @@ class MemoryEngine(MemoryEngineInterface):
                         "updated_at": row["updated_at"].isoformat() if row["updated_at"] else "",
                         "text_length": row["text_length"] or 0,
                         "memory_unit_count": unit_count,
-                        "retain_params": row["retain_params"] if row["retain_params"] else None,
+                        "retain_params": retain_params_val or None,
+                        "document_metadata": document_metadata or None,
                         "tags": row["tags"] if row["tags"] else [],
                     }
                 )
@@ -6556,17 +6615,13 @@ class MemoryEngine(MemoryEngineInterface):
 
         # Create parent span for mental model refresh operation
         with create_operation_span("mental_model_refresh", bank_id):
-            # SECURITY: If the mental model has tags, pass them to reflect with "all_strict" matching
-            # to ensure it can only access other mental models/memories with the SAME tags.
-            # This prevents cross-tenant/cross-user information leakage by excluding untagged content.
-            tags = mental_model.get("tags")
-            tags_match = "all_strict" if tags else "any"
-
             # Read reflect options from trigger (if stored)
             trigger_data = mental_model.get("trigger") or {}
             fact_types = trigger_data.get("fact_types")
             exclude_mental_models = trigger_data.get("exclude_mental_models", False)
             stored_exclude_ids: list[str] = trigger_data.get("exclude_mental_model_ids") or []
+
+            tag_filtering = _resolve_refresh_tag_filtering(mental_model.get("tags"), trigger_data)
 
             # Run reflect with the source query, excluding the mental model being refreshed
             # Skip creating a nested "hindsight.reflect" span since we already have "hindsight.mental_model_refresh"
@@ -6574,8 +6629,9 @@ class MemoryEngine(MemoryEngineInterface):
                 bank_id=bank_id,
                 query=mental_model["source_query"],
                 request_context=request_context,
-                tags=tags,
-                tags_match=tags_match,
+                tags=tag_filtering.tags,
+                tags_match=tag_filtering.tags_match,
+                tag_groups=tag_filtering.tag_groups,
                 fact_types=fact_types,
                 exclude_mental_models=exclude_mental_models,
                 exclude_mental_model_ids=list({*stored_exclude_ids, mental_model_id}),

@@ -2256,7 +2256,7 @@ If the text contains both Italian and English content, extract ONLY the Italian 
         Il sistema di autenticazione è stato migrato a OAuth 2.0.
         """
 
-        llm_config = LLMConfig.for_memory()
+        llm_config = LLMConfig.from_env()
 
         facts, _, _ = await extract_facts_from_text(
             text=text,
@@ -2491,7 +2491,7 @@ async def test_verbatim_extraction_mode():
             "She holds a CKA certification and has 5 years of Kubernetes experience."
         )
 
-        llm_config = LLMConfig.for_memory()
+        llm_config = LLMConfig.from_env()
         contents = [RetainContent(content=text, event_date=datetime(2024, 3, 10, tzinfo=timezone.utc), context="onboarding notes")]
         facts, chunks, _ = await extract_facts_from_contents(
             contents=contents,
@@ -2612,11 +2612,11 @@ def test_retain_mission_injected_into_prompt():
     assert spec in prompt
     assert "FOCUS" in prompt
 
-    # retain_mission is present regardless of extraction mode (verbose has its own template, no spec injection)
+    # retain_mission is injected into verbose mode as well
     config.retain_extraction_mode = "verbose"
     prompt_verbose, _ = _build_extraction_prompt_and_schema(config)
-    # verbose uses its own template - spec not injected there
-    assert spec not in prompt_verbose
+    assert spec in prompt_verbose
+    assert "FOCUS" in prompt_verbose
 
 
 def test_retain_mission_absent_when_not_set():

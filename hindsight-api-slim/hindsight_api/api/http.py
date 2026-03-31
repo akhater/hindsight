@@ -1277,6 +1277,8 @@ class DocumentResponse(BaseModel):
                 "updated_at": "2024-01-15T10:30:00Z",
                 "memory_unit_count": 15,
                 "tags": ["user_a", "session_123"],
+                "document_metadata": {"source": "slack", "channel": "#general"},
+                "retain_params": {"context": "Team meeting notes", "event_date": "2024-01-15"},
             }
         }
     )
@@ -1289,6 +1291,8 @@ class DocumentResponse(BaseModel):
     updated_at: str
     memory_unit_count: int
     tags: list[str] = FieldWithDefault(list, description="Tags associated with this document")
+    document_metadata: dict[str, Any] | None = Field(default=None, description="Document metadata")
+    retain_params: dict[str, Any] | None = Field(default=None, description="Parameters used during retain")
 
 
 class UpdateDocumentRequest(BaseModel):
@@ -1497,6 +1501,23 @@ class MentalModelTrigger(BaseModel):
     exclude_mental_model_ids: list[str] | None = Field(
         default=None,
         description="Exclude specific mental models by ID from the reflect loop.",
+    )
+    tags_match: TagsMatch | None = Field(
+        default=None,
+        description=(
+            "Override how the model's tags filter memories during refresh. "
+            "If not set, defaults to 'all_strict' when the model has tags (security isolation) "
+            "or 'any' when the model has no tags. "
+            "Set to 'any' to include untagged memories alongside tagged ones during refresh."
+        ),
+    )
+    tag_groups: list[TagGroup] | None = Field(
+        default=None,
+        description=(
+            "Compound boolean tag expressions to use during refresh instead of the model's own tags. "
+            "When set, these tag groups are passed to reflect and the model's flat tags are NOT used for filtering. "
+            "Supports nested and/or/not expressions for complex tag-based scoping."
+        ),
     )
 
     @field_validator("fact_types")
@@ -2153,6 +2174,77 @@ def create_app(
 
     app.openapi = _patched_openapi  # type: ignore[assignment]
 
+    # Add unknown parameters detection middleware
+    @app.middleware("http")
+    async def unknown_params_middleware(request, call_next):
+        """Detect unknown query params and body fields, log warning and set response header."""
+        import inspect
+
+        from starlette.routing import Match
+
+        ignored_params: list[str] = []
+
+        # --- Query parameters ---
+        if request.query_params:
+            for route in app.routes:
+                match, _ = route.matches(request.scope)
+                if match == Match.FULL:
+                    endpoint = getattr(route, "endpoint", None)
+                    if endpoint:
+                        sig = inspect.signature(endpoint)
+                        declared = set(sig.parameters.keys())
+                        path_params = set(getattr(route, "param_convertors", {}).keys()) | set(
+                            request.path_params.keys()
+                        )
+                        known_query = declared - path_params
+                        for name in request.query_params:
+                            if name not in known_query and name not in path_params:
+                                ignored_params.append(name)
+                    break
+
+        # --- Body fields ---
+        body_ignored: list[str] = []
+        content_type = request.headers.get("content-type", "")
+        if request.method in ("POST", "PUT", "PATCH") and "application/json" in content_type:
+            try:
+                body_bytes = await request.body()
+                if body_bytes:
+                    body_json = json.loads(body_bytes)
+                    if isinstance(body_json, dict):
+                        for route in app.routes:
+                            match, _ = route.matches(request.scope)
+                            if match == Match.FULL:
+                                endpoint = getattr(route, "endpoint", None)
+                                if endpoint:
+                                    sig = inspect.signature(endpoint)
+                                    for param in sig.parameters.values():
+                                        ann = param.annotation
+                                        if isinstance(ann, type) and issubclass(ann, BaseModel):
+                                            known_fields = set(ann.model_fields.keys())
+                                            for key in body_json:
+                                                if key not in known_fields:
+                                                    body_ignored.append(key)
+                                            break
+                                break
+            except (json.JSONDecodeError, UnicodeDecodeError):
+                pass
+
+        all_ignored = ignored_params + body_ignored
+
+        response = await call_next(request)
+
+        if all_ignored:
+            ignored_str = ", ".join(all_ignored)
+            logger.warning(
+                "Unknown parameters ignored: [%s] for %s %s",
+                ignored_str,
+                request.method,
+                request.url.path,
+            )
+            response.headers["X-Ignored-Params"] = ignored_str
+
+        return response
+
     # Add HTTP metrics middleware
     @app.middleware("http")
     async def http_metrics_middleware(request, call_next):
@@ -2545,6 +2637,7 @@ def _register_routes(app: FastAPI):
                     occurred_end=fact.occurred_end,
                     mentioned_at=fact.mentioned_at,
                     document_id=fact.document_id,
+                    metadata=fact.metadata,
                     chunk_id=fact.chunk_id,
                     tags=fact.tags,
                     source_fact_ids=fact.source_fact_ids,
@@ -5021,12 +5114,55 @@ def _register_routes(app: FastAPI):
 
     # ---- Audit Logs ----
 
+    class AuditLogEntry(BaseModel):
+        """A single audit log entry."""
+
+        id: str
+        action: str
+        transport: str
+        bank_id: str | None
+        started_at: str | None
+        ended_at: str | None
+        duration_ms: int | None = Field(
+            default=None,
+            description="Server-computed duration in milliseconds (started_at → ended_at). Null if not yet completed.",
+        )
+        request: dict[str, Any] | None
+        response: dict[str, Any] | None
+        metadata: dict[str, Any]
+
+    class AuditLogListResponse(BaseModel):
+        """Response model for list audit logs endpoint."""
+
+        bank_id: str
+        total: int
+        limit: int
+        offset: int
+        items: list[AuditLogEntry]
+
+    class AuditLogStatsBucket(BaseModel):
+        """A single time bucket in audit log stats."""
+
+        time: str
+        actions: dict[str, int]
+        total: int
+
+    class AuditLogStatsResponse(BaseModel):
+        """Response model for audit log stats endpoint."""
+
+        bank_id: str
+        period: str
+        trunc: str
+        start: str
+        buckets: list[AuditLogStatsBucket]
+
     @app.get(
         "/v1/default/banks/{bank_id}/audit-logs",
         summary="List audit logs",
         description="List audit log entries for a bank, ordered by most recent first.",
         operation_id="list_audit_logs",
         tags=["Audit"],
+        response_model=AuditLogListResponse,
     )
     async def api_list_audit_logs(
         bank_id: str,
@@ -5103,6 +5239,10 @@ def _register_routes(app: FastAPI):
 
                 items = []
                 for row in rows:
+                    duration_ms = None
+                    if row["started_at"] and row["ended_at"]:
+                        duration_ms = int((row["ended_at"] - row["started_at"]).total_seconds() * 1000)
+
                     items.append(
                         {
                             "id": str(row["id"]),
@@ -5111,6 +5251,7 @@ def _register_routes(app: FastAPI):
                             "bank_id": row["bank_id"],
                             "started_at": row["started_at"].isoformat() if row["started_at"] else None,
                             "ended_at": row["ended_at"].isoformat() if row["ended_at"] else None,
+                            "duration_ms": duration_ms,
                             "request": json.loads(row["request"]) if row["request"] else None,
                             "response": json.loads(row["response"]) if row["response"] else None,
                             "metadata": json.loads(row["metadata"]) if row["metadata"] else {},
@@ -5140,6 +5281,7 @@ def _register_routes(app: FastAPI):
         description="Get audit log counts grouped by time bucket for charting.",
         operation_id="audit_log_stats",
         tags=["Audit"],
+        response_model=AuditLogStatsResponse,
     )
     async def api_audit_log_stats(
         bank_id: str,

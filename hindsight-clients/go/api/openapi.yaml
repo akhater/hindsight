@@ -7,7 +7,7 @@ info:
     name: Apache 2.0
     url: https://www.apache.org/licenses/LICENSE-2.0.html
   title: Hindsight HTTP API
-  version: 0.4.20
+  version: 0.4.22
 servers:
 - url: /
 paths:
@@ -2868,7 +2868,8 @@ paths:
         "200":
           content:
             application/json:
-              schema: {}
+              schema:
+                $ref: '#/components/schemas/AuditLogListResponse'
           description: Successful Response
         "422":
           content:
@@ -2924,7 +2925,8 @@ paths:
         "200":
           content:
             application/json:
-              schema: {}
+              schema:
+                $ref: '#/components/schemas/AuditLogStatsResponse'
           description: Successful Response
         "422":
           content:
@@ -2972,6 +2974,185 @@ components:
       - operation_id
       - status
       title: AsyncOperationSubmitResponse
+    AuditLogEntry:
+      description: A single audit log entry.
+      example:
+        duration_ms: 5
+        request:
+          key: ""
+        metadata:
+          key: ""
+        bank_id: bank_id
+        response:
+          key: ""
+        action: action
+        started_at: started_at
+        id: id
+        transport: transport
+        ended_at: ended_at
+      properties:
+        id:
+          title: Id
+          type: string
+        action:
+          title: Action
+          type: string
+        transport:
+          title: Transport
+          type: string
+        bank_id:
+          nullable: true
+          type: string
+        started_at:
+          nullable: true
+          type: string
+        ended_at:
+          nullable: true
+          type: string
+        duration_ms:
+          nullable: true
+          type: integer
+        request:
+          additionalProperties: {}
+          nullable: true
+        response:
+          additionalProperties: {}
+          nullable: true
+        metadata:
+          additionalProperties: {}
+          title: Metadata
+      required:
+      - action
+      - bank_id
+      - ended_at
+      - id
+      - metadata
+      - request
+      - response
+      - started_at
+      - transport
+      title: AuditLogEntry
+    AuditLogListResponse:
+      description: Response model for list audit logs endpoint.
+      example:
+        total: 0
+        offset: 1
+        bank_id: bank_id
+        limit: 6
+        items:
+        - duration_ms: 5
+          request:
+            key: ""
+          metadata:
+            key: ""
+          bank_id: bank_id
+          response:
+            key: ""
+          action: action
+          started_at: started_at
+          id: id
+          transport: transport
+          ended_at: ended_at
+        - duration_ms: 5
+          request:
+            key: ""
+          metadata:
+            key: ""
+          bank_id: bank_id
+          response:
+            key: ""
+          action: action
+          started_at: started_at
+          id: id
+          transport: transport
+          ended_at: ended_at
+      properties:
+        bank_id:
+          title: Bank Id
+          type: string
+        total:
+          title: Total
+          type: integer
+        limit:
+          title: Limit
+          type: integer
+        offset:
+          title: Offset
+          type: integer
+        items:
+          items:
+            $ref: '#/components/schemas/AuditLogEntry'
+          type: array
+      required:
+      - bank_id
+      - items
+      - limit
+      - offset
+      - total
+      title: AuditLogListResponse
+    AuditLogStatsBucket:
+      description: A single time bucket in audit log stats.
+      example:
+        total: 6
+        time: time
+        actions:
+          key: 0
+      properties:
+        time:
+          title: Time
+          type: string
+        actions:
+          additionalProperties:
+            type: integer
+          title: Actions
+        total:
+          title: Total
+          type: integer
+      required:
+      - actions
+      - time
+      - total
+      title: AuditLogStatsBucket
+    AuditLogStatsResponse:
+      description: Response model for audit log stats endpoint.
+      example:
+        period: period
+        trunc: trunc
+        bank_id: bank_id
+        buckets:
+        - total: 6
+          time: time
+          actions:
+            key: 0
+        - total: 6
+          time: time
+          actions:
+            key: 0
+        start: start
+      properties:
+        bank_id:
+          title: Bank Id
+          type: string
+        period:
+          title: Period
+          type: string
+        trunc:
+          title: Trunc
+          type: string
+        start:
+          title: Start
+          type: string
+        buckets:
+          items:
+            $ref: '#/components/schemas/AuditLogStatsBucket'
+          type: array
+      required:
+      - bank_id
+      - buckets
+      - period
+      - start
+      - trunc
+      title: AuditLogStatsResponse
     BackgroundResponse:
       description: "Response model for background update. Deprecated: use MissionResponse\
         \ instead."
@@ -3500,7 +3681,7 @@ components:
           title: Max Tokens
           type: integer
         trigger:
-          $ref: '#/components/schemas/MentalModelTrigger'
+          $ref: '#/components/schemas/MentalModelTrigger-Input'
       required:
       - name
       - source_query
@@ -3729,9 +3910,15 @@ components:
         bank_id: user123
         content_hash: abc123
         created_at: 2024-01-15T10:30:00Z
+        document_metadata:
+          channel: '#general'
+          source: slack
         id: session_1
         memory_unit_count: 15
         original_text: Full document text here...
+        retain_params:
+          context: Team meeting notes
+          event_date: 2024-01-15
         tags:
         - user_a
         - session_123
@@ -3764,6 +3951,12 @@ components:
           items:
             type: string
           type: array
+        document_metadata:
+          additionalProperties: {}
+          nullable: true
+        retain_params:
+          additionalProperties: {}
+          nullable: true
       required:
       - bank_id
       - content_hash
@@ -4233,12 +4426,22 @@ components:
           id: id
           trigger:
             refresh_after_consolidation: false
+            tag_groups:
+            - match: any_strict
+              tags:
+              - tags
+              - tags
+            - match: any_strict
+              tags:
+              - tags
+              - tags
             fact_types:
             - world
             - world
             exclude_mental_model_ids:
             - exclude_mental_model_ids
             - exclude_mental_model_ids
+            tags_match: any
             exclude_mental_models: false
           last_refreshed_at: last_refreshed_at
           content: content
@@ -4255,12 +4458,22 @@ components:
           id: id
           trigger:
             refresh_after_consolidation: false
+            tag_groups:
+            - match: any_strict
+              tags:
+              - tags
+              - tags
+            - match: any_strict
+              tags:
+              - tags
+              - tags
             fact_types:
             - world
             - world
             exclude_mental_model_ids:
             - exclude_mental_model_ids
             - exclude_mental_model_ids
+            tags_match: any
             exclude_mental_models: false
           last_refreshed_at: last_refreshed_at
           content: content
@@ -4288,12 +4501,22 @@ components:
         id: id
         trigger:
           refresh_after_consolidation: false
+          tag_groups:
+          - match: any_strict
+            tags:
+            - tags
+            - tags
+          - match: any_strict
+            tags:
+            - tags
+            - tags
           fact_types:
           - world
           - world
           exclude_mental_model_ids:
           - exclude_mental_model_ids
           - exclude_mental_model_ids
+          tags_match: any
           exclude_mental_models: false
         last_refreshed_at: last_refreshed_at
         content: content
@@ -4328,7 +4551,7 @@ components:
           title: Max Tokens
           type: integer
         trigger:
-          $ref: '#/components/schemas/MentalModelTrigger'
+          $ref: '#/components/schemas/MentalModelTrigger-Output'
         last_refreshed_at:
           nullable: true
           type: string
@@ -4345,16 +4568,69 @@ components:
       - name
       - source_query
       title: MentalModelResponse
-    MentalModelTrigger:
+    MentalModelTrigger-Input:
+      description: Trigger settings for a mental model.
+      properties:
+        refresh_after_consolidation:
+          default: false
+          description: "If true, refresh this mental model after observations consolidation\
+            \ (real-time mode)"
+          title: Refresh After Consolidation
+          type: boolean
+        fact_types:
+          items:
+            enum:
+            - world
+            - experience
+            - observation
+            type: string
+          nullable: true
+          type: array
+        exclude_mental_models:
+          default: false
+          description: "If true, exclude all mental models from the reflect loop (skip\
+            \ search_mental_models tool)."
+          title: Exclude Mental Models
+          type: boolean
+        exclude_mental_model_ids:
+          items:
+            type: string
+          nullable: true
+          type: array
+        tags_match:
+          enum:
+          - any
+          - all
+          - any_strict
+          - all_strict
+          nullable: true
+          type: string
+        tag_groups:
+          items:
+            $ref: '#/components/schemas/MentalModelTrigger_Input_tag_groups_inner'
+          nullable: true
+          type: array
+      title: MentalModelTrigger
+    MentalModelTrigger-Output:
       description: Trigger settings for a mental model.
       example:
         refresh_after_consolidation: false
+        tag_groups:
+        - match: any_strict
+          tags:
+          - tags
+          - tags
+        - match: any_strict
+          tags:
+          - tags
+          - tags
         fact_types:
         - world
         - world
         exclude_mental_model_ids:
         - exclude_mental_model_ids
         - exclude_mental_model_ids
+        tags_match: any
         exclude_mental_models: false
       properties:
         refresh_after_consolidation:
@@ -4381,6 +4657,19 @@ components:
         exclude_mental_model_ids:
           items:
             type: string
+          nullable: true
+          type: array
+        tags_match:
+          enum:
+          - any
+          - all
+          - any_strict
+          - all_strict
+          nullable: true
+          type: string
+        tag_groups:
+          items:
+            $ref: '#/components/schemas/MentalModelTrigger_Output_tag_groups_inner'
           nullable: true
           type: array
       title: MentalModelTrigger
@@ -4566,7 +4855,7 @@ components:
           type: string
         tag_groups:
           items:
-            $ref: '#/components/schemas/RecallRequest_tag_groups_inner'
+            $ref: '#/components/schemas/MentalModelTrigger_Input_tag_groups_inner'
           nullable: true
           type: array
       required:
@@ -4888,7 +5177,7 @@ components:
           type: string
         tag_groups:
           items:
-            $ref: '#/components/schemas/RecallRequest_tag_groups_inner'
+            $ref: '#/components/schemas/MentalModelTrigger_Input_tag_groups_inner'
           nullable: true
           type: array
         fact_types:
@@ -5125,18 +5414,33 @@ components:
           title: Max Tokens Per Observation
           type: integer
       title: SourceFactsIncludeOptions
-    TagGroupAnd:
+    TagGroupAnd-Input:
       description: "Compound AND group: all child filters must match."
       properties:
         and:
           items:
-            $ref: '#/components/schemas/RecallRequest_tag_groups_inner'
+            $ref: '#/components/schemas/MentalModelTrigger_Input_tag_groups_inner'
+          type: array
+      required:
+      - and
+      title: TagGroupAnd
+    TagGroupAnd-Output:
+      description: "Compound AND group: all child filters must match."
+      properties:
+        and:
+          items:
+            $ref: '#/components/schemas/MentalModelTrigger_Output_tag_groups_inner'
           type: array
       required:
       - and
       title: TagGroupAnd
     TagGroupLeaf:
       description: "A leaf tag filter: matches memories by tag list and match mode."
+      example:
+        match: any_strict
+        tags:
+        - tags
+        - tags
       properties:
         tags:
           items:
@@ -5154,7 +5458,7 @@ components:
       required:
       - tags
       title: TagGroupLeaf
-    TagGroupNot:
+    TagGroupNot-Input:
       description: "Compound NOT group: child filter must NOT match."
       properties:
         not:
@@ -5162,12 +5466,30 @@ components:
       required:
       - not
       title: TagGroupNot
-    TagGroupOr:
+    TagGroupNot-Output:
+      description: "Compound NOT group: child filter must NOT match."
+      properties:
+        not:
+          $ref: '#/components/schemas/Not_1'
+      required:
+      - not
+      title: TagGroupNot
+    TagGroupOr-Input:
       description: "Compound OR group: at least one child filter must match."
       properties:
         or:
           items:
-            $ref: '#/components/schemas/RecallRequest_tag_groups_inner'
+            $ref: '#/components/schemas/MentalModelTrigger_Input_tag_groups_inner'
+          type: array
+      required:
+      - or
+      title: TagGroupOr
+    TagGroupOr-Output:
+      description: "Compound OR group: at least one child filter must match."
+      properties:
+        or:
+          items:
+            $ref: '#/components/schemas/MentalModelTrigger_Output_tag_groups_inner'
           type: array
       required:
       - or
@@ -5318,7 +5640,7 @@ components:
           nullable: true
           type: array
         trigger:
-          $ref: '#/components/schemas/MentalModelTrigger'
+          $ref: '#/components/schemas/MentalModelTrigger-Input'
       title: UpdateMentalModelRequest
     UpdateWebhookRequest:
       description: Request model for updating a webhook. Only provided fields are
@@ -5677,18 +5999,31 @@ components:
         \ which combinations to use."
       nullable: true
       title: ObservationScopes
-    RecallRequest_tag_groups_inner:
+    MentalModelTrigger_Input_tag_groups_inner:
       anyOf:
       - $ref: '#/components/schemas/TagGroupLeaf'
-      - $ref: '#/components/schemas/TagGroupAnd'
-      - $ref: '#/components/schemas/TagGroupOr'
-      - $ref: '#/components/schemas/TagGroupNot'
+      - $ref: '#/components/schemas/TagGroupAnd-Input'
+      - $ref: '#/components/schemas/TagGroupOr-Input'
+      - $ref: '#/components/schemas/TagGroupNot-Input'
+    MentalModelTrigger_Output_tag_groups_inner:
+      anyOf:
+      - $ref: '#/components/schemas/TagGroupLeaf'
+      - $ref: '#/components/schemas/TagGroupAnd-Output'
+      - $ref: '#/components/schemas/TagGroupOr-Output'
+      - $ref: '#/components/schemas/TagGroupNot-Output'
     Not:
       anyOf:
       - $ref: '#/components/schemas/TagGroupLeaf'
-      - $ref: '#/components/schemas/TagGroupAnd'
-      - $ref: '#/components/schemas/TagGroupOr'
-      - $ref: '#/components/schemas/TagGroupNot'
+      - $ref: '#/components/schemas/TagGroupAnd-Input'
+      - $ref: '#/components/schemas/TagGroupOr-Input'
+      - $ref: '#/components/schemas/TagGroupNot-Input'
+      title: Not
+    Not_1:
+      anyOf:
+      - $ref: '#/components/schemas/TagGroupLeaf'
+      - $ref: '#/components/schemas/TagGroupAnd-Output'
+      - $ref: '#/components/schemas/TagGroupOr-Output'
+      - $ref: '#/components/schemas/TagGroupNot-Output'
       title: Not
     ValidationError_loc_inner:
       anyOf:

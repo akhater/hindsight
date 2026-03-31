@@ -131,10 +131,12 @@ ENV_LLM_MAX_BACKOFF = "HINDSIGHT_API_LLM_MAX_BACKOFF"
 ENV_LLM_TIMEOUT = "HINDSIGHT_API_LLM_TIMEOUT"
 ENV_LLM_GROQ_SERVICE_TIER = "HINDSIGHT_API_LLM_GROQ_SERVICE_TIER"
 ENV_LLM_OPENAI_SERVICE_TIER = "HINDSIGHT_API_LLM_OPENAI_SERVICE_TIER"
+ENV_LLM_EXTRA_BODY = "HINDSIGHT_API_LLM_EXTRA_BODY"
 
 # Defaults for service tiers
 DEFAULT_LLM_GROQ_SERVICE_TIER = "auto"  # "on_demand", "flex", or "auto"
 DEFAULT_LLM_OPENAI_SERVICE_TIER = None  # None (default) or "flex" (50% cheaper)
+DEFAULT_LLM_EXTRA_BODY = None  # None = no extra body params; JSON dict merged into OpenAI extra_body
 
 # Per-operation LLM configuration (optional, falls back to global LLM config)
 ENV_RETAIN_LLM_PROVIDER = "HINDSIGHT_API_RETAIN_LLM_PROVIDER"
@@ -200,6 +202,7 @@ ENV_RERANKER_LITELLM_MAX_TOKENS_PER_DOC = "HINDSIGHT_API_RERANKER_LITELLM_MAX_TO
 ENV_EMBEDDINGS_LITELLM_SDK_API_KEY = "HINDSIGHT_API_EMBEDDINGS_LITELLM_SDK_API_KEY"
 ENV_EMBEDDINGS_LITELLM_SDK_MODEL = "HINDSIGHT_API_EMBEDDINGS_LITELLM_SDK_MODEL"
 ENV_EMBEDDINGS_LITELLM_SDK_API_BASE = "HINDSIGHT_API_EMBEDDINGS_LITELLM_SDK_API_BASE"
+ENV_EMBEDDINGS_LITELLM_SDK_OUTPUT_DIMENSIONS = "HINDSIGHT_API_EMBEDDINGS_LITELLM_SDK_OUTPUT_DIMENSIONS"
 ENV_RERANKER_LITELLM_SDK_API_KEY = "HINDSIGHT_API_RERANKER_LITELLM_SDK_API_KEY"
 ENV_RERANKER_LITELLM_SDK_MODEL = "HINDSIGHT_API_RERANKER_LITELLM_SDK_MODEL"
 ENV_RERANKER_LITELLM_SDK_API_BASE = "HINDSIGHT_API_RERANKER_LITELLM_SDK_API_BASE"
@@ -226,6 +229,7 @@ ENV_RERANKER_FLASHRANK_CACHE_DIR = "HINDSIGHT_API_RERANKER_FLASHRANK_CACHE_DIR"
 # ZeroEntropy configuration (reranker only)
 ENV_RERANKER_ZEROENTROPY_API_KEY = "HINDSIGHT_API_RERANKER_ZEROENTROPY_API_KEY"
 ENV_RERANKER_ZEROENTROPY_MODEL = "HINDSIGHT_API_RERANKER_ZEROENTROPY_MODEL"
+ENV_RERANKER_ZEROENTROPY_BASE_URL = "HINDSIGHT_API_RERANKER_ZEROENTROPY_BASE_URL"
 
 ENV_VECTOR_EXTENSION = "HINDSIGHT_API_VECTOR_EXTENSION"
 ENV_TEXT_SEARCH_EXTENSION = "HINDSIGHT_API_TEXT_SEARCH_EXTENSION"
@@ -238,6 +242,7 @@ ENV_LOG_FORMAT = "HINDSIGHT_API_LOG_FORMAT"
 ENV_WORKERS = "HINDSIGHT_API_WORKERS"
 ENV_MCP_ENABLED = "HINDSIGHT_API_MCP_ENABLED"
 ENV_MCP_ENABLED_TOOLS = "HINDSIGHT_API_MCP_ENABLED_TOOLS"
+ENV_MCP_STATELESS = "HINDSIGHT_API_MCP_STATELESS"
 ENV_ENABLE_BANK_CONFIG_API = "HINDSIGHT_API_ENABLE_BANK_CONFIG_API"
 ENV_GRAPH_RETRIEVER = "HINDSIGHT_API_GRAPH_RETRIEVER"
 ENV_MPFP_TOP_K_NEIGHBORS = "HINDSIGHT_API_MPFP_TOP_K_NEIGHBORS"
@@ -444,6 +449,7 @@ DEFAULT_LOG_FORMAT = "text"  # Options: "text", "json"
 DEFAULT_WORKERS = 1
 DEFAULT_MCP_ENABLED = True
 DEFAULT_MCP_ENABLED_TOOLS: list[str] | None = None  # None = all tools enabled
+DEFAULT_MCP_STATELESS = False  # False = stateful (supports SSE/GET); True = stateless (POST-only)
 DEFAULT_ENABLE_BANK_CONFIG_API = True
 DEFAULT_GRAPH_RETRIEVER = "link_expansion"  # Options: "link_expansion", "mpfp", "bfs"
 DEFAULT_MPFP_TOP_K_NEIGHBORS = 20  # Fan-out limit per node in MPFP graph traversal
@@ -636,6 +642,9 @@ class HindsightConfig:
     llm_timeout: float
     llm_groq_service_tier: str  # Groq: "on_demand", "flex", or "auto"
     llm_openai_service_tier: str | None  # OpenAI: None (default) or "flex" (50% cheaper)
+    llm_extra_body: (
+        dict | None
+    )  # Extra body params merged into OpenAI-compatible API calls (e.g. {"chat_template_kwargs": {"enable_thinking": true}})
 
     # Vertex AI configuration
     llm_vertexai_project_id: str | None
@@ -692,6 +701,7 @@ class HindsightConfig:
     embeddings_litellm_sdk_api_key: str | None
     embeddings_litellm_sdk_model: str
     embeddings_litellm_sdk_api_base: str | None
+    embeddings_litellm_sdk_output_dimensions: int | None
 
     # Reranker
     reranker_provider: str
@@ -718,6 +728,7 @@ class HindsightConfig:
     reranker_litellm_sdk_api_base: str | None
     reranker_zeroentropy_api_key: str | None
     reranker_zeroentropy_model: str
+    reranker_zeroentropy_base_url: str | None
 
     # Server
     host: str
@@ -727,6 +738,7 @@ class HindsightConfig:
     log_format: str
     mcp_enabled: bool
     mcp_enabled_tools: list[str] | None  # None = all tools; explicit list = allowlist
+    mcp_stateless: bool  # True = stateless HTTP (POST-only); False = stateful (supports GET/SSE)
     enable_bank_config_api: bool
 
     # Recall
@@ -862,6 +874,7 @@ class HindsightConfig:
         "embeddings_tei_base_url",
         "reranker_tei_base_url",
         "reranker_cohere_base_url",
+        "reranker_zeroentropy_base_url",
         # Service Account Keys
         "llm_vertexai_service_account_key",
         # File storage credentials
@@ -1031,6 +1044,7 @@ class HindsightConfig:
             llm_timeout=float(os.getenv(ENV_LLM_TIMEOUT, str(DEFAULT_LLM_TIMEOUT))),
             llm_groq_service_tier=os.getenv(ENV_LLM_GROQ_SERVICE_TIER, DEFAULT_LLM_GROQ_SERVICE_TIER),
             llm_openai_service_tier=os.getenv(ENV_LLM_OPENAI_SERVICE_TIER, DEFAULT_LLM_OPENAI_SERVICE_TIER),
+            llm_extra_body=json.loads(os.getenv(ENV_LLM_EXTRA_BODY, "null")),
             # Vertex AI
             llm_vertexai_project_id=os.getenv(ENV_LLM_VERTEXAI_PROJECT_ID) or DEFAULT_LLM_VERTEXAI_PROJECT_ID,
             llm_vertexai_region=os.getenv(ENV_LLM_VERTEXAI_REGION, DEFAULT_LLM_VERTEXAI_REGION),
@@ -1137,6 +1151,9 @@ class HindsightConfig:
                 ENV_EMBEDDINGS_LITELLM_SDK_MODEL, DEFAULT_EMBEDDINGS_LITELLM_SDK_MODEL
             ),
             embeddings_litellm_sdk_api_base=os.getenv(ENV_EMBEDDINGS_LITELLM_SDK_API_BASE) or None,
+            embeddings_litellm_sdk_output_dimensions=int(v)
+            if (v := os.getenv(ENV_EMBEDDINGS_LITELLM_SDK_OUTPUT_DIMENSIONS))
+            else None,
             # Reranker
             reranker_provider=os.getenv(ENV_RERANKER_PROVIDER, DEFAULT_RERANKER_PROVIDER),
             reranker_local_model=os.getenv(ENV_RERANKER_LOCAL_MODEL, DEFAULT_RERANKER_LOCAL_MODEL),
@@ -1185,6 +1202,7 @@ class HindsightConfig:
             # ZeroEntropy reranker
             reranker_zeroentropy_api_key=os.getenv(ENV_RERANKER_ZEROENTROPY_API_KEY),
             reranker_zeroentropy_model=os.getenv(ENV_RERANKER_ZEROENTROPY_MODEL, DEFAULT_RERANKER_ZEROENTROPY_MODEL),
+            reranker_zeroentropy_base_url=os.getenv(ENV_RERANKER_ZEROENTROPY_BASE_URL) or None,
             # Server
             host=os.getenv(ENV_HOST, DEFAULT_HOST),
             port=int(os.getenv(ENV_PORT, DEFAULT_PORT)),
@@ -1195,6 +1213,7 @@ class HindsightConfig:
             mcp_enabled_tools=[t.strip() for t in os.getenv(ENV_MCP_ENABLED_TOOLS).split(",") if t.strip()]
             if os.getenv(ENV_MCP_ENABLED_TOOLS)
             else DEFAULT_MCP_ENABLED_TOOLS,
+            mcp_stateless=os.getenv(ENV_MCP_STATELESS, str(DEFAULT_MCP_STATELESS)).lower() == "true",
             enable_bank_config_api=os.getenv(ENV_ENABLE_BANK_CONFIG_API, str(DEFAULT_ENABLE_BANK_CONFIG_API)).lower()
             == "true",
             # Recall

@@ -1229,3 +1229,90 @@ async def test_retain_with_timestamp_async_complete_processing(api_client, test_
     assert response.status_code == 200
     items = response.json()["items"]
     assert len(items) > 0, "Should have stored memories after async processing"
+
+
+@pytest.mark.asyncio
+async def test_http_recall_preserves_metadata(api_client, test_bank_id):
+    """
+    Regression test for #797: HTTP recall must return metadata stored during retain.
+
+    The engine correctly preserves metadata, but _fact_to_result in http.py was
+    missing the metadata= kwarg, causing the HTTP endpoint to always return null.
+    """
+    metadata = {"source": "slack", "channel": "engineering", "importance": "high"}
+
+    # Retain with metadata
+    response = await api_client.post(
+        f"/v1/default/banks/{test_bank_id}/memories",
+        json={
+            "items": [
+                {
+                    "content": "The product launch is scheduled for March 1st.",
+                    "metadata": metadata,
+                }
+            ]
+        },
+    )
+    assert response.status_code == 200
+
+    # Recall via HTTP
+    response = await api_client.post(
+        f"/v1/default/banks/{test_bank_id}/memories/recall",
+        json={"query": "When is the product launch?", "budget": "low"},
+    )
+    assert response.status_code == 200
+    results = response.json()["results"]
+    assert len(results) > 0, "Should recall at least one fact"
+
+    # Find a result that has our metadata (LLM may extract multiple facts)
+    facts_with_metadata = [r for r in results if r.get("metadata")]
+    assert len(facts_with_metadata) > 0, "At least one fact must have metadata (regression #797)"
+    fact = facts_with_metadata[0]
+    assert fact["metadata"]["source"] == "slack"
+    assert fact["metadata"]["channel"] == "engineering"
+    assert fact["metadata"]["importance"] == "high"
+
+
+@pytest.mark.asyncio
+async def test_unknown_params_not_rejected(api_client):
+    """Unknown query params and body fields should not cause a rejection (no 400).
+
+    The server should return 200 with an X-Ignored-Params header listing the
+    unknown parameters instead of rejecting the request. This ensures forward
+    compatibility when a newer client talks to an older server.
+    """
+    test_bank_id = f"unknown_params_test_{datetime.now().timestamp()}"
+
+    # Ensure bank exists
+    await api_client.get(f"/v1/default/banks/{test_bank_id}/profile")
+
+    # Unknown query params on GET endpoint
+    response = await api_client.get(
+        f"/v1/default/banks/{test_bank_id}/memories/list",
+        params={"limit": 1, "tag": "source:slack", "created_after": "2026-01-01"},
+    )
+    assert response.status_code == 200
+    assert "X-Ignored-Params" in response.headers
+    ignored = response.headers["X-Ignored-Params"]
+    assert "tag" in ignored
+    assert "created_after" in ignored
+
+    # Unknown body fields on POST endpoint
+    response = await api_client.post(
+        f"/v1/default/banks/{test_bank_id}/memories",
+        json={
+            "items": [{"content": "test memory", "context": "test"}],
+            "unknown_future_field": True,
+        },
+    )
+    assert response.status_code == 200
+    assert "X-Ignored-Params" in response.headers
+    assert "unknown_future_field" in response.headers["X-Ignored-Params"]
+
+    # Known params only — no header
+    response = await api_client.get(
+        f"/v1/default/banks/{test_bank_id}/memories/list",
+        params={"limit": 1, "type": "world"},
+    )
+    assert response.status_code == 200
+    assert "X-Ignored-Params" not in response.headers

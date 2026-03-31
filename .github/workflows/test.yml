@@ -3,14 +3,20 @@ name: CI
 on:
   pull_request:
     branches: [ main ]
+  pull_request_review:
+    types: [ submitted ]
   workflow_dispatch:
 
 concurrency:
-  group: ci-${{ github.workflow }}-${{ github.ref }}
+  group: ci-${{ github.workflow }}-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 jobs:
   detect-changes:
+    # Skip non-approved pull_request_review events
+    if: >-
+      github.event_name != 'pull_request_review' ||
+      github.event.review.state == 'approved'
     runs-on: ubuntu-latest
     permissions:
       pull-requests: read
@@ -32,17 +38,25 @@ jobs:
       integrations-ai-sdk: ${{ steps.filter.outputs.integrations-ai-sdk }}
       integrations-chat: ${{ steps.filter.outputs.integrations-chat }}
       integrations-claude-code: ${{ steps.filter.outputs.integrations-claude-code }}
+      integrations-codex: ${{ steps.filter.outputs.integrations-codex }}
       integrations-crewai: ${{ steps.filter.outputs.integrations-crewai }}
       integrations-litellm: ${{ steps.filter.outputs.integrations-litellm }}
       integrations-pydantic-ai: ${{ steps.filter.outputs.integrations-pydantic-ai }}
       integrations-ag2: ${{ steps.filter.outputs.integrations-ag2 }}
       integrations-hermes: ${{ steps.filter.outputs.integrations-hermes }}
+      integrations-llamaindex: ${{ steps.filter.outputs.integrations-llamaindex }}
       dev: ${{ steps.filter.outputs.dev }}
       ci: ${{ steps.filter.outputs.ci }}
+      # Secrets are available for internal PRs, pull_request_review, and workflow_dispatch.
+      # Fork PRs via pull_request event do NOT have access to secrets.
+      has_secrets: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
     steps:
     - uses: actions/checkout@v6
+      with:
+        # For pull_request_review, checkout the PR head (not the base branch)
+        ref: ${{ github.event_name == 'pull_request_review' && github.event.pull_request.head.sha || '' }}
 
-    - uses: dorny/paths-filter@v3
+    - uses: dorny/paths-filter@v4
       id: filter
       with:
         filters: |
@@ -89,6 +103,8 @@ jobs:
             - 'hindsight-integrations/chat/**'
           integrations-claude-code:
             - 'hindsight-integrations/claude-code/**'
+          integrations-codex:
+            - 'hindsight-integrations/codex/**'
           integrations-crewai:
             - 'hindsight-integrations/crewai/**'
           integrations-litellm:
@@ -99,6 +115,8 @@ jobs:
             - 'hindsight-integrations/ag2/**'
           integrations-hermes:
             - 'hindsight-integrations/hermes/**'
+          integrations-llamaindex:
+            - 'hindsight-integrations/llamaindex/**'
           dev:
             - 'hindsight-dev/**'
           ci:
@@ -107,9 +125,10 @@ jobs:
   build-api-python-versions:
     needs: [detect-changes]
     if: >-
-      github.event_name == 'workflow_dispatch' ||
+      github.event_name != 'pull_request_review' &&
+      (github.event_name == 'workflow_dispatch' ||
       needs.detect-changes.outputs.core == 'true' ||
-      needs.detect-changes.outputs.ci == 'true'
+      needs.detect-changes.outputs.ci == 'true')
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -117,6 +136,8 @@ jobs:
 
     steps:
     - uses: actions/checkout@v6
+      with:
+        ref: ${{ github.event.pull_request.head.sha || '' }}
 
     - name: Install uv
       uses: astral-sh/setup-uv@v7
@@ -135,13 +156,16 @@ jobs:
   build-typescript-client:
     needs: [detect-changes]
     if: >-
-      github.event_name == 'workflow_dispatch' ||
+      github.event_name != 'pull_request_review' &&
+      (github.event_name == 'workflow_dispatch' ||
       needs.detect-changes.outputs.clients-ts == 'true' ||
-      needs.detect-changes.outputs.ci == 'true'
+      needs.detect-changes.outputs.ci == 'true')
     runs-on: ubuntu-latest
 
     steps:
     - uses: actions/checkout@v6
+      with:
+        ref: ${{ github.event.pull_request.head.sha || '' }}
 
     - name: Set up Node.js
       uses: actions/setup-node@v6
@@ -159,13 +183,16 @@ jobs:
   build-openclaw-integration:
     needs: [detect-changes]
     if: >-
-      github.event_name == 'workflow_dispatch' ||
+      github.event_name != 'pull_request_review' &&
+      (github.event_name == 'workflow_dispatch' ||
       needs.detect-changes.outputs.integrations-openclaw == 'true' ||
-      needs.detect-changes.outputs.ci == 'true'
+      needs.detect-changes.outputs.ci == 'true')
     runs-on: ubuntu-latest
 
     steps:
     - uses: actions/checkout@v6
+      with:
+        ref: ${{ github.event.pull_request.head.sha || '' }}
 
     - name: Set up Node.js
       uses: actions/setup-node@v6
@@ -187,13 +214,16 @@ jobs:
   test-claude-code-integration:
     needs: [detect-changes]
     if: >-
-      github.event_name == 'workflow_dispatch' ||
+      github.event_name != 'pull_request_review' &&
+      (github.event_name == 'workflow_dispatch' ||
       needs.detect-changes.outputs.integrations-claude-code == 'true' ||
-      needs.detect-changes.outputs.ci == 'true'
+      needs.detect-changes.outputs.ci == 'true')
     runs-on: ubuntu-latest
 
     steps:
     - uses: actions/checkout@v6
+      with:
+        ref: ${{ github.event.pull_request.head.sha || '' }}
 
     - name: Set up Python
       uses: actions/setup-python@v6
@@ -207,16 +237,45 @@ jobs:
       working-directory: ./hindsight-integrations/claude-code
       run: python -m pytest tests/ -v
 
-  build-ai-sdk-integration:
+  test-codex-integration:
     needs: [detect-changes]
     if: >-
-      github.event_name == 'workflow_dispatch' ||
-      needs.detect-changes.outputs.integrations-ai-sdk == 'true' ||
-      needs.detect-changes.outputs.ci == 'true'
+      github.event_name != 'pull_request_review' &&
+      (github.event_name == 'workflow_dispatch' ||
+      needs.detect-changes.outputs.integrations-codex == 'true' ||
+      needs.detect-changes.outputs.ci == 'true')
     runs-on: ubuntu-latest
 
     steps:
     - uses: actions/checkout@v6
+      with:
+        ref: ${{ github.event.pull_request.head.sha || '' }}
+
+    - name: Set up Python
+      uses: actions/setup-python@v6
+      with:
+        python-version: '3.11'
+
+    - name: Install pytest
+      run: pip install pytest
+
+    - name: Run tests
+      working-directory: ./hindsight-integrations/codex
+      run: python -m pytest tests/ -v
+
+  build-ai-sdk-integration:
+    needs: [detect-changes]
+    if: >-
+      github.event_name != 'pull_request_review' &&
+      (github.event_name == 'workflow_dispatch' ||
+      needs.detect-changes.outputs.integrations-ai-sdk == 'true' ||
+      needs.detect-changes.outputs.ci == 'true')
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v6
+      with:
+        ref: ${{ github.event.pull_request.head.sha || '' }}
 
     - name: Set up Node.js
       uses: actions/setup-node@v6
@@ -238,13 +297,16 @@ jobs:
   test-ai-sdk-integration-deno:
     needs: [detect-changes]
     if: >-
-      github.event_name == 'workflow_dispatch' ||
+      github.event_name != 'pull_request_review' &&
+      (github.event_name == 'workflow_dispatch' ||
       needs.detect-changes.outputs.integrations-ai-sdk == 'true' ||
-      needs.detect-changes.outputs.ci == 'true'
+      needs.detect-changes.outputs.ci == 'true')
     runs-on: ubuntu-latest
 
     steps:
     - uses: actions/checkout@v6
+      with:
+        ref: ${{ github.event.pull_request.head.sha || '' }}
 
     - name: Set up Deno
       uses: denoland/setup-deno@v2
@@ -267,13 +329,16 @@ jobs:
   build-chat-integration:
     needs: [detect-changes]
     if: >-
-      github.event_name == 'workflow_dispatch' ||
+      github.event_name != 'pull_request_review' &&
+      (github.event_name == 'workflow_dispatch' ||
       needs.detect-changes.outputs.integrations-chat == 'true' ||
-      needs.detect-changes.outputs.ci == 'true'
+      needs.detect-changes.outputs.ci == 'true')
     runs-on: ubuntu-latest
 
     steps:
     - uses: actions/checkout@v6
+      with:
+        ref: ${{ github.event.pull_request.head.sha || '' }}
 
     - name: Set up Node.js
       uses: actions/setup-node@v6
@@ -295,14 +360,17 @@ jobs:
   build-control-plane:
     needs: [detect-changes]
     if: >-
-      github.event_name == 'workflow_dispatch' ||
+      github.event_name != 'pull_request_review' &&
+      (github.event_name == 'workflow_dispatch' ||
       needs.detect-changes.outputs.control-plane == 'true' ||
       needs.detect-changes.outputs.clients-ts == 'true' ||
-      needs.detect-changes.outputs.ci == 'true'
+      needs.detect-changes.outputs.ci == 'true')
     runs-on: ubuntu-latest
 
     steps:
     - uses: actions/checkout@v6
+      with:
+        ref: ${{ github.event.pull_request.head.sha || '' }}
 
     - name: Set up Node.js
       uses: actions/setup-node@v6
@@ -353,13 +421,16 @@ jobs:
   build-docs:
     needs: [detect-changes]
     if: >-
-      github.event_name == 'workflow_dispatch' ||
+      github.event_name != 'pull_request_review' &&
+      (github.event_name == 'workflow_dispatch' ||
       needs.detect-changes.outputs.docs == 'true' ||
-      needs.detect-changes.outputs.ci == 'true'
+      needs.detect-changes.outputs.ci == 'true')
     runs-on: ubuntu-latest
 
     steps:
     - uses: actions/checkout@v6
+      with:
+        ref: ${{ github.event.pull_request.head.sha || '' }}
 
     - name: Set up Node.js
       uses: actions/setup-node@v6
@@ -377,10 +448,12 @@ jobs:
   test-rust-cli:
     needs: [detect-changes]
     if: >-
+      needs.detect-changes.outputs.has_secrets == 'true' &&
+      ((github.event_name == 'pull_request_review' && github.event.review.state == 'approved') ||
       github.event_name == 'workflow_dispatch' ||
       needs.detect-changes.outputs.core == 'true' ||
       needs.detect-changes.outputs.cli == 'true' ||
-      needs.detect-changes.outputs.ci == 'true'
+      needs.detect-changes.outputs.ci == 'true')
     runs-on: ubuntu-latest
     env:
       HINDSIGHT_API_LLM_PROVIDER: vertexai
@@ -391,6 +464,8 @@ jobs:
 
     steps:
     - uses: actions/checkout@v6
+      with:
+        ref: ${{ github.event.pull_request.head.sha || '' }}
 
     - name: Setup GCP credentials
       run: |
@@ -503,16 +578,19 @@ jobs:
   lint-helm-chart:
     needs: [detect-changes]
     if: >-
-      github.event_name == 'workflow_dispatch' ||
+      github.event_name != 'pull_request_review' &&
+      (github.event_name == 'workflow_dispatch' ||
       needs.detect-changes.outputs.helm == 'true' ||
-      needs.detect-changes.outputs.ci == 'true'
+      needs.detect-changes.outputs.ci == 'true')
     runs-on: ubuntu-latest
 
     steps:
     - uses: actions/checkout@v6
+      with:
+        ref: ${{ github.event.pull_request.head.sha || '' }}
 
     - name: Install Helm
-      uses: azure/setup-helm@v4
+      uses: azure/setup-helm@v5
       with:
         version: 'latest'
 
@@ -522,11 +600,13 @@ jobs:
   build-docker-images:
     needs: [detect-changes]
     if: >-
+      needs.detect-changes.outputs.has_secrets == 'true' &&
+      ((github.event_name == 'pull_request_review' && github.event.review.state == 'approved') ||
       github.event_name == 'workflow_dispatch' ||
       needs.detect-changes.outputs.core == 'true' ||
       needs.detect-changes.outputs.docker == 'true' ||
       needs.detect-changes.outputs.control-plane == 'true' ||
-      needs.detect-changes.outputs.ci == 'true'
+      needs.detect-changes.outputs.ci == 'true')
     name: Build Docker (${{ matrix.name }})
     runs-on: ubuntu-latest
     strategy:
@@ -559,6 +639,8 @@ jobs:
 
     steps:
     - uses: actions/checkout@v6
+      with:
+        ref: ${{ github.event.pull_request.head.sha || '' }}
 
     - name: Free Disk Space
       uses: jlumbroso/free-disk-space@main
@@ -612,9 +694,11 @@ jobs:
   test-api:
     needs: [detect-changes]
     if: >-
+      needs.detect-changes.outputs.has_secrets == 'true' &&
+      ((github.event_name == 'pull_request_review' && github.event.review.state == 'approved') ||
       github.event_name == 'workflow_dispatch' ||
       needs.detect-changes.outputs.core == 'true' ||
-      needs.detect-changes.outputs.ci == 'true'
+      needs.detect-changes.outputs.ci == 'true')
     runs-on: ubuntu-latest
     env:
       HINDSIGHT_API_LLM_PROVIDER: vertexai
@@ -632,6 +716,8 @@ jobs:
 
     steps:
     - uses: actions/checkout@v6
+      with:
+        ref: ${{ github.event.pull_request.head.sha || '' }}
 
     - name: Setup GCP credentials
       run: |
@@ -685,10 +771,12 @@ jobs:
   test-python-client:
     needs: [detect-changes]
     if: >-
+      needs.detect-changes.outputs.has_secrets == 'true' &&
+      ((github.event_name == 'pull_request_review' && github.event.review.state == 'approved') ||
       github.event_name == 'workflow_dispatch' ||
       needs.detect-changes.outputs.core == 'true' ||
       needs.detect-changes.outputs.clients-python == 'true' ||
-      needs.detect-changes.outputs.ci == 'true'
+      needs.detect-changes.outputs.ci == 'true')
     runs-on: ubuntu-latest
     env:
       HINDSIGHT_API_LLM_PROVIDER: vertexai
@@ -700,6 +788,8 @@ jobs:
 
     steps:
     - uses: actions/checkout@v6
+      with:
+        ref: ${{ github.event.pull_request.head.sha || '' }}
 
     - name: Setup GCP credentials
       run: |
@@ -793,10 +883,12 @@ jobs:
   test-typescript-client:
     needs: [detect-changes]
     if: >-
+      needs.detect-changes.outputs.has_secrets == 'true' &&
+      ((github.event_name == 'pull_request_review' && github.event.review.state == 'approved') ||
       github.event_name == 'workflow_dispatch' ||
       needs.detect-changes.outputs.core == 'true' ||
       needs.detect-changes.outputs.clients-ts == 'true' ||
-      needs.detect-changes.outputs.ci == 'true'
+      needs.detect-changes.outputs.ci == 'true')
     runs-on: ubuntu-latest
     env:
       HINDSIGHT_API_LLM_PROVIDER: vertexai
@@ -808,6 +900,8 @@ jobs:
 
     steps:
     - uses: actions/checkout@v6
+      with:
+        ref: ${{ github.event.pull_request.head.sha || '' }}
 
     - name: Setup GCP credentials
       run: |
@@ -906,10 +1000,12 @@ jobs:
   test-typescript-client-deno:
     needs: [detect-changes]
     if: >-
+      needs.detect-changes.outputs.has_secrets == 'true' &&
+      ((github.event_name == 'pull_request_review' && github.event.review.state == 'approved') ||
       github.event_name == 'workflow_dispatch' ||
       needs.detect-changes.outputs.core == 'true' ||
       needs.detect-changes.outputs.clients-ts == 'true' ||
-      needs.detect-changes.outputs.ci == 'true'
+      needs.detect-changes.outputs.ci == 'true')
     runs-on: ubuntu-latest
     env:
       HINDSIGHT_API_LLM_PROVIDER: vertexai
@@ -920,6 +1016,8 @@ jobs:
 
     steps:
     - uses: actions/checkout@v6
+      with:
+        ref: ${{ github.event.pull_request.head.sha || '' }}
 
     - name: Setup GCP credentials
       run: |
@@ -1025,13 +1123,16 @@ jobs:
   build-rust-cli-arm64:
     needs: [detect-changes]
     if: >-
-      github.event_name == 'workflow_dispatch' ||
+      github.event_name != 'pull_request_review' &&
+      (github.event_name == 'workflow_dispatch' ||
       needs.detect-changes.outputs.cli == 'true' ||
-      needs.detect-changes.outputs.ci == 'true'
+      needs.detect-changes.outputs.ci == 'true')
     runs-on: ubuntu-24.04-arm
 
     steps:
     - uses: actions/checkout@v6
+      with:
+        ref: ${{ github.event.pull_request.head.sha || '' }}
 
     - name: Install Rust
       uses: dtolnay/rust-toolchain@stable
@@ -1054,10 +1155,12 @@ jobs:
   test-rust-client:
     needs: [detect-changes]
     if: >-
+      needs.detect-changes.outputs.has_secrets == 'true' &&
+      ((github.event_name == 'pull_request_review' && github.event.review.state == 'approved') ||
       github.event_name == 'workflow_dispatch' ||
       needs.detect-changes.outputs.core == 'true' ||
       needs.detect-changes.outputs.clients-rust == 'true' ||
-      needs.detect-changes.outputs.ci == 'true'
+      needs.detect-changes.outputs.ci == 'true')
     runs-on: ubuntu-latest
     env:
       HINDSIGHT_API_LLM_PROVIDER: vertexai
@@ -1069,6 +1172,8 @@ jobs:
 
     steps:
     - uses: actions/checkout@v6
+      with:
+        ref: ${{ github.event.pull_request.head.sha || '' }}
 
     - name: Setup GCP credentials
       run: |
@@ -1166,10 +1271,12 @@ jobs:
   test-go-client:
     needs: [detect-changes]
     if: >-
+      needs.detect-changes.outputs.has_secrets == 'true' &&
+      ((github.event_name == 'pull_request_review' && github.event.review.state == 'approved') ||
       github.event_name == 'workflow_dispatch' ||
       needs.detect-changes.outputs.core == 'true' ||
       needs.detect-changes.outputs.clients-go == 'true' ||
-      needs.detect-changes.outputs.ci == 'true'
+      needs.detect-changes.outputs.ci == 'true')
     runs-on: ubuntu-latest
     env:
       HINDSIGHT_API_LLM_PROVIDER: vertexai
@@ -1181,6 +1288,8 @@ jobs:
 
     steps:
     - uses: actions/checkout@v6
+      with:
+        ref: ${{ github.event.pull_request.head.sha || '' }}
 
     - name: Setup GCP credentials
       run: |
@@ -1276,11 +1385,13 @@ jobs:
   test-openclaw-integration:
     needs: [detect-changes]
     if: >-
+      needs.detect-changes.outputs.has_secrets == 'true' &&
+      ((github.event_name == 'pull_request_review' && github.event.review.state == 'approved') ||
       github.event_name == 'workflow_dispatch' ||
       needs.detect-changes.outputs.core == 'true' ||
       needs.detect-changes.outputs.integrations-openclaw == 'true' ||
       needs.detect-changes.outputs.embed == 'true' ||
-      needs.detect-changes.outputs.ci == 'true'
+      needs.detect-changes.outputs.ci == 'true')
     runs-on: ubuntu-latest
     env:
       HINDSIGHT_API_LLM_PROVIDER: vertexai
@@ -1292,6 +1403,8 @@ jobs:
 
     steps:
     - uses: actions/checkout@v6
+      with:
+        ref: ${{ github.event.pull_request.head.sha || '' }}
 
     - name: Setup GCP credentials
       run: |
@@ -1390,10 +1503,12 @@ jobs:
   test-integration:
     needs: [detect-changes]
     if: >-
+      needs.detect-changes.outputs.has_secrets == 'true' &&
+      ((github.event_name == 'pull_request_review' && github.event.review.state == 'approved') ||
       github.event_name == 'workflow_dispatch' ||
       needs.detect-changes.outputs.core == 'true' ||
       needs.detect-changes.outputs.integration-tests == 'true' ||
-      needs.detect-changes.outputs.ci == 'true'
+      needs.detect-changes.outputs.ci == 'true')
     runs-on: ubuntu-latest
     env:
       HINDSIGHT_API_LLM_PROVIDER: vertexai
@@ -1404,6 +1519,8 @@ jobs:
 
     steps:
     - uses: actions/checkout@v6
+      with:
+        ref: ${{ github.event.pull_request.head.sha || '' }}
 
     - name: Setup GCP credentials
       run: |
@@ -1493,13 +1610,16 @@ jobs:
   test-ag2-integration:
     needs: [detect-changes]
     if: >-
-      github.event_name == 'workflow_dispatch' ||
+      github.event_name != 'pull_request_review' &&
+      (github.event_name == 'workflow_dispatch' ||
       needs.detect-changes.outputs.integrations-ag2 == 'true' ||
-      needs.detect-changes.outputs.ci == 'true'
+      needs.detect-changes.outputs.ci == 'true')
     runs-on: ubuntu-latest
 
     steps:
     - uses: actions/checkout@v6
+      with:
+        ref: ${{ github.event.pull_request.head.sha || '' }}
 
     - name: Install uv
       uses: astral-sh/setup-uv@v7
@@ -1527,13 +1647,16 @@ jobs:
   test-crewai-integration:
     needs: [detect-changes]
     if: >-
-      github.event_name == 'workflow_dispatch' ||
+      github.event_name != 'pull_request_review' &&
+      (github.event_name == 'workflow_dispatch' ||
       needs.detect-changes.outputs.integrations-crewai == 'true' ||
-      needs.detect-changes.outputs.ci == 'true'
+      needs.detect-changes.outputs.ci == 'true')
     runs-on: ubuntu-latest
 
     steps:
     - uses: actions/checkout@v6
+      with:
+        ref: ${{ github.event.pull_request.head.sha || '' }}
 
     - name: Install uv
       uses: astral-sh/setup-uv@v7
@@ -1561,13 +1684,16 @@ jobs:
   test-litellm-integration:
     needs: [detect-changes]
     if: >-
-      github.event_name == 'workflow_dispatch' ||
+      github.event_name != 'pull_request_review' &&
+      (github.event_name == 'workflow_dispatch' ||
       needs.detect-changes.outputs.integrations-litellm == 'true' ||
-      needs.detect-changes.outputs.ci == 'true'
+      needs.detect-changes.outputs.ci == 'true')
     runs-on: ubuntu-latest
 
     steps:
     - uses: actions/checkout@v6
+      with:
+        ref: ${{ github.event.pull_request.head.sha || '' }}
 
     - name: Install uv
       uses: astral-sh/setup-uv@v7
@@ -1595,13 +1721,16 @@ jobs:
   test-pydantic-ai-integration:
     needs: [detect-changes]
     if: >-
-      github.event_name == 'workflow_dispatch' ||
+      github.event_name != 'pull_request_review' &&
+      (github.event_name == 'workflow_dispatch' ||
       needs.detect-changes.outputs.integrations-pydantic-ai == 'true' ||
-      needs.detect-changes.outputs.ci == 'true'
+      needs.detect-changes.outputs.ci == 'true')
     runs-on: ubuntu-latest
 
     steps:
     - uses: actions/checkout@v6
+      with:
+        ref: ${{ github.event.pull_request.head.sha || '' }}
 
     - name: Install uv
       uses: astral-sh/setup-uv@v7
@@ -1629,13 +1758,16 @@ jobs:
   test-hermes-integration:
     needs: [detect-changes]
     if: >-
-      github.event_name == 'workflow_dispatch' ||
+      github.event_name != 'pull_request_review' &&
+      (github.event_name == 'workflow_dispatch' ||
       needs.detect-changes.outputs.integrations-hermes == 'true' ||
-      needs.detect-changes.outputs.ci == 'true'
+      needs.detect-changes.outputs.ci == 'true')
     runs-on: ubuntu-latest
 
     steps:
     - uses: actions/checkout@v6
+      with:
+        ref: ${{ github.event.pull_request.head.sha || '' }}
 
     - name: Install uv
       uses: astral-sh/setup-uv@v7
@@ -1660,12 +1792,51 @@ jobs:
       working-directory: ./hindsight-integrations/hermes
       run: uv run pytest tests -v
 
+  test-llamaindex-integration:
+    needs: [detect-changes]
+    if: >-
+      github.event_name != 'pull_request_review' &&
+      (github.event_name == 'workflow_dispatch' ||
+      needs.detect-changes.outputs.integrations-llamaindex == 'true' ||
+      needs.detect-changes.outputs.ci == 'true')
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v6
+      with:
+        ref: ${{ github.event.pull_request.head.sha || '' }}
+
+    - name: Install uv
+      uses: astral-sh/setup-uv@v7
+      with:
+        enable-cache: true
+        prune-cache: false
+
+    - name: Set up Python
+      uses: actions/setup-python@v6
+      with:
+        python-version-file: ".python-version"
+
+    - name: Build llamaindex integration
+      working-directory: ./hindsight-integrations/llamaindex
+      run: uv build
+
+    - name: Install dependencies
+      working-directory: ./hindsight-integrations/llamaindex
+      run: uv sync --frozen
+
+    - name: Run tests
+      working-directory: ./hindsight-integrations/llamaindex
+      run: uv run pytest tests -v
+
   test-pip-slim:
     needs: [detect-changes]
     if: >-
+      needs.detect-changes.outputs.has_secrets == 'true' &&
+      ((github.event_name == 'pull_request_review' && github.event.review.state == 'approved') ||
       github.event_name == 'workflow_dispatch' ||
       needs.detect-changes.outputs.core == 'true' ||
-      needs.detect-changes.outputs.ci == 'true'
+      needs.detect-changes.outputs.ci == 'true')
     runs-on: ubuntu-latest
     env:
       HINDSIGHT_API_LLM_PROVIDER: vertexai
@@ -1677,6 +1848,8 @@ jobs:
 
     steps:
     - uses: actions/checkout@v6
+      with:
+        ref: ${{ github.event.pull_request.head.sha || '' }}
 
     - name: Setup GCP credentials
       run: |
@@ -1728,10 +1901,12 @@ jobs:
   test-embed:
     needs: [detect-changes]
     if: >-
+      needs.detect-changes.outputs.has_secrets == 'true' &&
+      ((github.event_name == 'pull_request_review' && github.event.review.state == 'approved') ||
       github.event_name == 'workflow_dispatch' ||
       needs.detect-changes.outputs.core == 'true' ||
       needs.detect-changes.outputs.embed == 'true' ||
-      needs.detect-changes.outputs.ci == 'true'
+      needs.detect-changes.outputs.ci == 'true')
     runs-on: ubuntu-latest
     env:
       HINDSIGHT_API_LLM_PROVIDER: vertexai
@@ -1741,6 +1916,8 @@ jobs:
 
     steps:
     - uses: actions/checkout@v6
+      with:
+        ref: ${{ github.event.pull_request.head.sha || '' }}
 
     - name: Setup GCP credentials
       run: |
@@ -1787,10 +1964,12 @@ jobs:
   test-hindsight-all:
     needs: [detect-changes]
     if: >-
+      needs.detect-changes.outputs.has_secrets == 'true' &&
+      ((github.event_name == 'pull_request_review' && github.event.review.state == 'approved') ||
       github.event_name == 'workflow_dispatch' ||
       needs.detect-changes.outputs.core == 'true' ||
       needs.detect-changes.outputs.hindsight-all == 'true' ||
-      needs.detect-changes.outputs.ci == 'true'
+      needs.detect-changes.outputs.ci == 'true')
     runs-on: ubuntu-latest
     env:
       HINDSIGHT_API_LLM_PROVIDER: vertexai
@@ -1804,6 +1983,8 @@ jobs:
 
     steps:
     - uses: actions/checkout@v6
+      with:
+        ref: ${{ github.event.pull_request.head.sha || '' }}
 
     - name: Setup GCP credentials
       run: |
@@ -1868,6 +2049,8 @@ jobs:
   test-doc-examples:
     needs: [detect-changes]
     if: >-
+      needs.detect-changes.outputs.has_secrets == 'true' &&
+      ((github.event_name == 'pull_request_review' && github.event.review.state == 'approved') ||
       github.event_name == 'workflow_dispatch' ||
       needs.detect-changes.outputs.core == 'true' ||
       needs.detect-changes.outputs.clients-ts == 'true' ||
@@ -1875,7 +2058,7 @@ jobs:
       needs.detect-changes.outputs.clients-go == 'true' ||
       needs.detect-changes.outputs.cli == 'true' ||
       needs.detect-changes.outputs.docs == 'true' ||
-      needs.detect-changes.outputs.ci == 'true'
+      needs.detect-changes.outputs.ci == 'true')
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -1891,6 +2074,8 @@ jobs:
 
     steps:
     - uses: actions/checkout@v6
+      with:
+        ref: ${{ github.event.pull_request.head.sha || '' }}
 
     - name: Setup GCP credentials
       run: |
@@ -2017,10 +2202,12 @@ jobs:
   test-upgrade:
     needs: [detect-changes]
     if: >-
+      needs.detect-changes.outputs.has_secrets == 'true' &&
+      ((github.event_name == 'pull_request_review' && github.event.review.state == 'approved') ||
       github.event_name == 'workflow_dispatch' ||
       needs.detect-changes.outputs.core == 'true' ||
       needs.detect-changes.outputs.dev == 'true' ||
-      needs.detect-changes.outputs.ci == 'true'
+      needs.detect-changes.outputs.ci == 'true')
     runs-on: ubuntu-latest
     env:
       HINDSIGHT_API_LLM_PROVIDER: vertexai
@@ -2031,6 +2218,7 @@ jobs:
     steps:
     - uses: actions/checkout@v6
       with:
+        ref: ${{ github.event.pull_request.head.sha || '' }}
         fetch-depth: 0  # Full history needed for git clone of tags
 
     - name: Setup GCP credentials
@@ -2098,9 +2286,12 @@ jobs:
         done
 
   verify-generated-files:
+    if: github.event_name != 'pull_request_review'
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v6
+      with:
+        ref: ${{ github.event.pull_request.head.sha || '' }}
 
     - name: Install uv
       uses: astral-sh/setup-uv@v7
@@ -2173,13 +2364,15 @@ jobs:
   check-openapi-compatibility:
     needs: [detect-changes]
     if: >-
-      github.event_name == 'workflow_dispatch' ||
+      github.event_name != 'pull_request_review' &&
+      (github.event_name == 'workflow_dispatch' ||
       needs.detect-changes.outputs.core == 'true' ||
-      needs.detect-changes.outputs.ci == 'true'
+      needs.detect-changes.outputs.ci == 'true')
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v6
       with:
+        ref: ${{ github.event.pull_request.head.sha || '' }}
         fetch-depth: 0  # Fetch full git history to access base branch
 
     - name: Install uv
@@ -2219,3 +2412,130 @@ jobs:
         # Check compatibility using our tool
         cd hindsight-dev
         uv run check-openapi-compatibility /tmp/old-openapi.json ../hindsight-docs/static/openapi.json
+
+  # Report CI status back to the PR for pull_request_review events.
+  # GitHub does not automatically link pull_request_review check runs to the PR,
+  # so we create a commit status on the PR head SHA and post a comment.
+  report-pr-status:
+    if: github.event_name == 'pull_request_review' && github.event.review.state == 'approved' && always()
+    needs:
+      - detect-changes
+      - build-api-python-versions
+      - build-typescript-client
+      - build-openclaw-integration
+      - test-claude-code-integration
+      - test-codex-integration
+      - build-ai-sdk-integration
+      - test-ai-sdk-integration-deno
+      - build-chat-integration
+      - build-control-plane
+      - build-docs
+      - test-rust-cli
+      - lint-helm-chart
+      - build-docker-images
+      - test-api
+      - test-python-client
+      - test-typescript-client
+      - test-typescript-client-deno
+      - build-rust-cli-arm64
+      - test-rust-client
+      - test-go-client
+      - test-openclaw-integration
+      - test-integration
+      - test-ag2-integration
+      - test-crewai-integration
+      - test-litellm-integration
+      - test-pydantic-ai-integration
+      - test-hermes-integration
+      - test-llamaindex-integration
+      - test-pip-slim
+      - test-embed
+      - test-hindsight-all
+      - test-doc-examples
+      - test-upgrade
+      - verify-generated-files
+      - check-openapi-compatibility
+    runs-on: ubuntu-latest
+    permissions:
+      statuses: write
+      pull-requests: write
+    steps:
+      - name: Determine overall result
+        id: result
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const needs = ${{ toJSON(needs) }};
+            const entries = Object.entries(needs);
+            const failed = entries.filter(([, v]) => v.result === 'failure');
+            const skipped = entries.filter(([, v]) => v.result === 'skipped');
+            const succeeded = entries.filter(([, v]) => v.result === 'success');
+            const overall = failed.length > 0 ? 'failure' : 'success';
+            const icon = overall === 'success' ? '✅' : '❌';
+            const runUrl = `https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+
+            let body = `## ${icon} CI results\n\n`;
+            body += `| Status | Count |\n|--------|-------|\n`;
+            body += `| ✅ Passed | ${succeeded.length} |\n`;
+            if (failed.length > 0) body += `| ❌ Failed | ${failed.length} |\n`;
+            if (skipped.length > 0) body += `| ⏭️ Skipped | ${skipped.length} |\n`;
+
+            if (failed.length > 0) {
+              body += `\n### Failed jobs\n`;
+              for (const [name] of failed) {
+                body += `- \`${name}\`\n`;
+              }
+            }
+
+            body += `\n[View full run](${runUrl})`;
+
+            core.setOutput('state', overall);
+            core.setOutput('description', failed.length > 0 ? 'Some CI checks failed' : 'All CI checks passed');
+            core.setOutput('body', body);
+            core.setOutput('run_url', runUrl);
+
+      - name: Report status to PR
+        uses: actions/github-script@v7
+        with:
+          script: |
+            await github.rest.repos.createCommitStatus({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              sha: context.payload.pull_request.head.sha,
+              state: '${{ steps.result.outputs.state }}',
+              context: 'CI / full-tests',
+              description: '${{ steps.result.outputs.description }}',
+              target_url: '${{ steps.result.outputs.run_url }}'
+            });
+
+      - name: Comment on PR
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const prNumber = context.payload.pull_request.number;
+            const marker = '<!-- ci-full-test-report -->';
+            const body = `${marker}\n${{ steps.result.outputs.body }}`;
+
+            // Update existing comment if present, otherwise create new one
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: prNumber,
+            });
+            const existing = comments.find(c => c.body.includes(marker));
+
+            if (existing) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: existing.id,
+                body,
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: prNumber,
+                body,
+              });
+            }
